@@ -1,31 +1,25 @@
+FROM python:3.13
 
-# Get a distribution that has uv already installed
-FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim
+WORKDIR /app
 
-# Add user - this is the user that will run the app
-# If you do not set user, the app will run as root (undesirable)
-RUN useradd -m -u 1000 user
-USER user
+# Copy the Python codebase
+COPY api/requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Set the home directory and path
-ENV HOME=/home/user \
-    PATH=/home/user/.local/bin:$PATH        
+# Copy the aimakerspace directory
+COPY aimakerspace/ /app/aimakerspace/
 
-ENV UVICORN_WS_PROTOCOL=websockets
+# Copy the API files and static files
+COPY api/ /app/
 
+# Make sure static directory exists
+RUN mkdir -p /app/static
 
-# Set the working directory
-WORKDIR $HOME/app
+# Set environment variables
+ENV PYTHONPATH=/app
 
-# Copy the app to the container
-COPY --chown=user . $HOME/app
+# Expose the application port
+EXPOSE 8000
 
-# Install the dependencies
-# RUN uv sync --frozen
-RUN uv sync
-
-# Expose the port
-EXPOSE 7860
-
-# Run the app
-CMD ["uv", "run", "chainlit", "run", "app.py", "--host", "0.0.0.0", "--port", "7860"]
+# Start the application
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

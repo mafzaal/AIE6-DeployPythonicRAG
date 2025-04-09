@@ -342,3 +342,103 @@ For the challenge mode, please instead create a simple FastAPI backend with a si
 You can use the same prompt templates and RAG pipeline as we did here - but you'll need to modify the code to work with FastAPI and React.
 
 Deploy this application to Hugging Face Spaces!
+
+# RAG Application with FastAPI and React
+
+This repository contains a RAG (Retrieval Augmented Generation) application with a FastAPI backend and React frontend.
+
+## Project Structure
+
+```
+.
+├── api/                # FastAPI backend
+│   ├── main.py         # Main FastAPI application
+│   ├── requirements.txt # Backend dependencies
+│   └── start.sh        # Backend start script
+├── app/
+│   └── frontend/       # React frontend
+├── aimakerspace/       # RAG utilities
+└── Dockerfile          # Dockerfile for the entire application
+```
+
+## Requirements
+
+- Python 3.13+
+- Node.js 18+
+- OpenAI API key
+
+## Getting Started
+
+### Environment Variables
+
+Create a `.env` file in the root directory with your OpenAI API key:
+
+```
+OPENAI_API_KEY=your_openai_api_key
+```
+
+### Running the Application Locally
+
+#### Backend
+
+1. Navigate to the `api` directory:
+   ```
+   cd api
+   ```
+
+2. Install the dependencies:
+   ```
+   pip install -r requirements.txt
+   ```
+
+3. Start the FastAPI backend:
+   ```
+   ./start.sh
+   ```
+
+#### Frontend
+
+1. Navigate to the `app/frontend` directory:
+   ```
+   cd app/frontend
+   ```
+
+2. Install the dependencies:
+   ```
+   npm install
+   ```
+
+3. Start the React development server:
+   ```
+   npm start
+   ```
+
+4. Open your browser and navigate to `http://localhost:3000`
+
+### Running with Docker
+
+1. Build the Docker image:
+   ```
+   docker build -t rag-app .
+   ```
+
+2. Run the Docker container:
+   ```
+   docker run -p 8000:8000 -e OPENAI_API_KEY=your_openai_api_key rag-app
+   ```
+
+3. Open your browser and navigate to `http://localhost:8000`
+
+## Usage
+
+1. Upload a text or PDF file (max 2MB)
+2. Ask questions about the uploaded document
+3. Receive answers based on the content of the document
+
+## Features
+
+- Document upload (PDF, TXT)
+- Document processing with text chunking
+- Semantic search using embeddings
+- Question answering with LLM (OpenAI models)
+- Real-time chat interface

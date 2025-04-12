@@ -2,6 +2,7 @@ import os
 import tempfile
 import shutil
 import json
+import uuid
 from typing import List
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -67,6 +68,19 @@ class DocumentSummaryResponse(BaseModel):
     entities: List[str]
     wordCloudData: List[dict]
     documentStructure: List[dict]
+
+class QuizQuestion(BaseModel):
+    id: str
+    text: str
+    options: List[str]
+    correctAnswer: str
+
+class GenerateQuizRequest(BaseModel):
+    session_id: str
+    num_questions: int = 5
+
+class GenerateQuizResponse(BaseModel):
+    questions: List[QuizQuestion]
 
 @app.post("/upload")
 async def upload_file(file: UploadFile = File(...), session_id: str = Form(...)):
@@ -283,6 +297,167 @@ async def get_document_summary(request: DocumentSummaryRequest):
                 {"title": "Error in document analysis", "subsections": ["Please try again"]}
             ]
         }
+
+@app.post("/generate-quiz", response_model=GenerateQuizResponse)
+async def generate_quiz(request: GenerateQuizRequest):
+    session_id = request.session_id
+    num_questions = min(request.num_questions, 10)  # Limit to max 10 questions
+    
+    # Check if session exists
+    if session_id not in user_sessions:
+        raise HTTPException(status_code=404, detail="Session not found. Please upload a document first.")
+    
+    # Get the retrieval pipeline from the session
+    retrieval_pipeline = user_sessions[session_id]
+    
+    # Get access to the document content
+    vector_db = retrieval_pipeline.vector_db_retriever
+    
+    # We'll use all the text chunks to create comprehensive quiz questions
+    # Get all text chunks from the vector store
+    all_texts = vector_db.get_all_texts()
+    
+    # Combine a sample of the texts (to avoid hitting token limits)
+    sample_texts = all_texts[:15] if len(all_texts) > 15 else all_texts
+    doc_content = "\n".join(sample_texts)
+    
+    # Create the LLM quiz generation prompt
+    quiz_prompt = f"""
+    Based on the following document content, generate {num_questions} multiple-choice quiz questions to test the reader's understanding:
+    
+    ```
+    {doc_content}
+    ```
+    
+    For each question:
+    1. Create a clear, specific question about key information in the document
+    2. Provide exactly 4 answer options (A, B, C, D)
+    3. Clearly indicate which option is correct
+    4. Make sure distractors (wrong answers) are plausible but clearly incorrect
+    
+    Return ONLY a JSON object with the following structure:
+    
+    {{
+      "questions": [
+        {{
+          "id": "unique_id",
+          "text": "question text",
+          "options": ["option A", "option B", "option C", "option D"],
+          "correctAnswer": "correct option text"
+        }},
+        ...
+      ]
+    }}
+    
+    The questions should cover different aspects of the document and test genuine understanding.
+    """
+    
+    # Get LLM response
+    try:
+        llm = retrieval_pipeline.llm
+        response = await llm.acreate_single_response(quiz_prompt)
+        
+        # Parse the JSON
+        # Find JSON content (sometimes the LLM adds extra text)
+        import re
+        json_match = re.search(r'({[\s\S]*})', response)
+        
+        if json_match:
+            json_str = json_match.group(1)
+            quiz_data = json.loads(json_str)
+            
+            # Validate and clean the questions
+            questions = []
+            for q in quiz_data.get("questions", []):
+                # Ensure each question has a unique ID
+                if "id" not in q or not q["id"]:
+                    q["id"] = str(uuid.uuid4())
+                
+                # Verify the question has all required fields
+                if "text" in q and "options" in q and "correctAnswer" in q:
+                    # Verify correctAnswer is in options
+                    if q["correctAnswer"] in q["options"]:
+                        questions.append(QuizQuestion(
+                            id=q["id"],
+                            text=q["text"],
+                            options=q["options"],
+                            correctAnswer=q["correctAnswer"]
+                        ))
+            
+            # If no valid questions were found or not enough questions, create fallback
+            if len(questions) < min(3, num_questions):
+                questions = generate_fallback_questions(num_questions)
+                
+            return {"questions": questions[:num_questions]}
+        else:
+            # If no JSON found, return fallback questions
+            return {"questions": generate_fallback_questions(num_questions)}
+            
+    except Exception as e:
+        print(f"Error generating quiz: {e}")
+        # Return fallback questions on error
+        return {"questions": generate_fallback_questions(num_questions)}
+
+def generate_fallback_questions(num_questions: int) -> List[QuizQuestion]:
+    """Generate generic fallback questions when LLM fails"""
+    fallback_questions = [
+        QuizQuestion(
+            id=str(uuid.uuid4()),
+            text="What is the main purpose of a RAG (Retrieval-Augmented Generation) system?",
+            options=[
+                "To generate random text without meaning",
+                "To retrieve documents from a database only",
+                "To combine document retrieval with language model generation",
+                "To replace human writing entirely"
+            ],
+            correctAnswer="To combine document retrieval with language model generation"
+        ),
+        QuizQuestion(
+            id=str(uuid.uuid4()),
+            text="Which component is NOT typically part of a RAG system?",
+            options=[
+                "Vector database",
+                "Language model",
+                "Blockchain ledger",
+                "Text splitter"
+            ],
+            correctAnswer="Blockchain ledger"
+        ),
+        QuizQuestion(
+            id=str(uuid.uuid4()),
+            text="What is the benefit of using RAG over a standalone language model?",
+            options=[
+                "It's always faster",
+                "It provides more up-to-date and accurate information",
+                "It uses less computational resources",
+                "It requires no training data"
+            ],
+            correctAnswer="It provides more up-to-date and accurate information"
+        ),
+        QuizQuestion(
+            id=str(uuid.uuid4()),
+            text="What is a vector embedding in the context of RAG?",
+            options=[
+                "A mathematical representation of text in multidimensional space",
+                "A form of data compression",
+                "A type of encryption",
+                "A physical server component"
+            ],
+            correctAnswer="A mathematical representation of text in multidimensional space"
+        ),
+        QuizQuestion(
+            id=str(uuid.uuid4()),
+            text="How does a RAG system determine which text chunks are relevant to a query?",
+            options=[
+                "Random selection",
+                "Semantic similarity between query and text embeddings",
+                "Alphabetical ordering",
+                "Document recency only"
+            ],
+            correctAnswer="Semantic similarity between query and text embeddings"
+        )
+    ]
+    return fallback_questions[:num_questions]
 
 # Serve the frontend
 @app.get("/")

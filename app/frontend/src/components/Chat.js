@@ -7,11 +7,19 @@ import { oneLight, oneDark } from 'react-syntax-highlighter/dist/esm/styles/pris
 import { useTheme } from './ui/theme-provider';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
+import Quiz from './Quiz';
 
 const Chat = ({ sessionId, docDescription, suggestedQuestions, selectedQuestion, onQuestionSelected }) => {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [userQuestionCount, setUserQuestionCount] = useState(0);
+  const [showQuizPrompt, setShowQuizPrompt] = useState(false);
+  const [showQuiz, setShowQuiz] = useState(false);
+  const [quizQuestions, setQuizQuestions] = useState([]);
+  const [quizLoading, setQuizLoading] = useState(false);
+  const [quizResults, setQuizResults] = useState(null);
+  
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const { theme } = useTheme();
@@ -50,6 +58,34 @@ const Chat = ({ sessionId, docDescription, suggestedQuestions, selectedQuestion,
       { text: userMessage, sender: 'user' }
     ]);
     
+    // Check if user is explicitly asking for a quiz
+    const quizRequestPatterns = [
+      /quiz me/i,
+      /take (a|the) quiz/i,
+      /start (a|the) quiz/i,
+      /test (my )?knowledge/i,
+      /give me (a|the) quiz/i,
+      /create (a|the) quiz/i,
+      /can (i|you) (do|have|take) (a|the) quiz/i
+    ];
+    
+    const isQuizRequest = quizRequestPatterns.some(pattern => pattern.test(userMessage));
+    
+    if (isQuizRequest && !showQuiz && !quizLoading) {
+      // Add user message acknowledging quiz request
+      setMessages(prevMessages => [
+        ...prevMessages, 
+        { 
+          text: "I'd be happy to create a quiz based on this document! Generating questions now...", 
+          sender: 'ai' 
+        }
+      ]);
+      
+      // Start quiz generation
+      handleQuizGeneration();
+      return;
+    }
+    
     setIsLoading(true);
     
     try {
@@ -63,6 +99,15 @@ const Chat = ({ sessionId, docDescription, suggestedQuestions, selectedQuestion,
         ...prevMessages, 
         { text: response.data.response, sender: 'ai' }
       ]);
+      
+      // Increment question count after successful response
+      const newCount = userQuestionCount + 1;
+      setUserQuestionCount(newCount);
+      
+      // Check if we should show quiz prompt (after 3+ questions and not already shown)
+      if (newCount >= 3 && !showQuizPrompt && !showQuiz && !quizResults) {
+        setShowQuizPrompt(true);
+      }
     } catch (error) {
       console.error('Error getting response:', error);
       
@@ -78,6 +123,91 @@ const Chat = ({ sessionId, docDescription, suggestedQuestions, selectedQuestion,
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleQuizGeneration = async () => {
+    setQuizLoading(true);
+    setShowQuizPrompt(false);
+    
+    try {
+      const response = await axios.post('/generate-quiz', {
+        session_id: sessionId,
+        num_questions: 5
+      });
+      
+      setQuizQuestions(response.data.questions);
+      setShowQuiz(true);
+    } catch (error) {
+      console.error('Error generating quiz:', error);
+      
+      // Add error message to chat
+      setMessages(prevMessages => [
+        ...prevMessages, 
+        { 
+          text: 'Sorry, there was an error generating the quiz. Please try again later.', 
+          sender: 'ai', 
+          isError: true 
+        }
+      ]);
+    } finally {
+      setQuizLoading(false);
+    }
+  };
+
+  const handleAcceptQuiz = async () => {
+    setShowQuizPrompt(false);
+    setQuizLoading(true);
+    
+    // Add message about starting quiz generation
+    setMessages(prevMessages => [
+      ...prevMessages,
+      { 
+        text: "I'll create a knowledge quiz based on this document. Please wait a moment...", 
+        sender: 'ai' 
+      }
+    ]);
+    
+    handleQuizGeneration();
+  };
+
+  const handleDeclineQuiz = () => {
+    setShowQuizPrompt(false);
+    
+    // Add message acknowledging user's choice
+    setMessages(prevMessages => [
+      ...prevMessages,
+      { 
+        text: "No problem! Feel free to continue asking questions about the document.", 
+        sender: 'ai' 
+      }
+    ]);
+  };
+
+  const handleQuizComplete = (results) => {
+    setQuizResults(results);
+    setShowQuiz(false);
+    
+    // Add quiz results to chat
+    const resultMessage = `
+## Quiz Results 📊
+
+You answered **${results.correctAnswers}** out of **${results.totalQuestions}** questions correctly (**${Math.round(results.score)}%**).
+
+${results.score >= 80 
+  ? "Great job! You have a solid understanding of the material." 
+  : results.score >= 60 
+    ? "Good work! You're on the right track." 
+    : "Keep learning! Review the document to improve your understanding."}
+`;
+    
+    setMessages(prevMessages => [
+      ...prevMessages,
+      { text: resultMessage, sender: 'ai' }
+    ]);
+  };
+
+  const handleCloseQuiz = () => {
+    setShowQuiz(false);
   };
 
   // Component for rendering markdown with custom styles
@@ -147,6 +277,11 @@ const Chat = ({ sessionId, docDescription, suggestedQuestions, selectedQuestion,
     </ReactMarkdown>
   );
 
+  // If quiz is active, show the quiz component
+  if (showQuiz) {
+    return <Quiz questions={quizQuestions} onComplete={handleQuizComplete} onClose={handleCloseQuiz} />;
+  }
+
   return (
     <div className="flex flex-col rounded-lg border border-border bg-card/50 transition-colors duration-300 h-[600px]">
       <div className="flex-1 overflow-y-auto p-4 w-full">
@@ -197,6 +332,39 @@ const Chat = ({ sessionId, docDescription, suggestedQuestions, selectedQuestion,
                 </div>
               </div>
             ))}
+            
+            {/* Quiz prompt message */}
+            {showQuizPrompt && !isLoading && (
+              <div className="mb-4 flex justify-start w-full">
+                <div className="flex flex-col items-start gap-2 max-w-[80%] rounded-lg px-4 py-3 bg-primary/10 text-foreground shadow-sm border border-primary/20">
+                  <div className="flex items-start gap-2">
+                    <span className="mt-1 text-lg flex-shrink-0">🧠</span>
+                    <div className="text-sm">
+                      <p className="mb-3">
+                        I notice you've asked several questions about this document. Would you like to test your knowledge with a quick quiz?
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        <Button 
+                          onClick={handleAcceptQuiz} 
+                          size="sm" 
+                          className="flex items-center gap-1"
+                        >
+                          <span role="img" aria-label="quiz" className="text-sm">📝</span>
+                          Take a quiz
+                        </Button>
+                        <Button 
+                          onClick={handleDeclineQuiz} 
+                          variant="outline" 
+                          size="sm"
+                        >
+                          No thanks
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
         {isLoading && (
@@ -207,6 +375,21 @@ const Chat = ({ sessionId, docDescription, suggestedQuestions, selectedQuestion,
                 <div className="h-2 w-2 animate-bounce rounded-full bg-primary"></div>
                 <div className="h-2 w-2 animate-bounce rounded-full bg-primary" style={{ animationDelay: '0.2s' }}></div>
                 <div className="h-2 w-2 animate-bounce rounded-full bg-primary" style={{ animationDelay: '0.4s' }}></div>
+              </div>
+            </div>
+          </div>
+        )}
+        {quizLoading && (
+          <div className="mb-4 flex justify-start w-full">
+            <div className="flex items-start gap-2 max-w-[80%] rounded-lg px-4 py-3 bg-secondary text-secondary-foreground shadow-sm">
+              <span className="mt-1 text-lg flex-shrink-0">📝</span>
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center space-x-2">
+                  <div className="h-2 w-2 animate-bounce rounded-full bg-primary"></div>
+                  <div className="h-2 w-2 animate-bounce rounded-full bg-primary" style={{ animationDelay: '0.2s' }}></div>
+                  <div className="h-2 w-2 animate-bounce rounded-full bg-primary" style={{ animationDelay: '0.4s' }}></div>
+                </div>
+                <span className="text-xs">Generating quiz questions...</span>
               </div>
             </div>
           </div>
@@ -223,12 +406,12 @@ const Chat = ({ sessionId, docDescription, suggestedQuestions, selectedQuestion,
             value={input}
             onChange={handleInputChange}
             placeholder="Ask a question about your document... 🔍"
-            disabled={isLoading}
+            disabled={isLoading || quizLoading}
             className="flex-1 transition-colors duration-300"
           />
           <Button 
             type="submit" 
-            disabled={isLoading || !input.trim()}
+            disabled={isLoading || quizLoading || !input.trim()}
             className="transition-colors duration-300 flex items-center gap-2 flex-shrink-0"
           >
             <span>Send</span>

@@ -61,18 +61,22 @@ const FileUpload = ({ sessionId, onUploadSuccess }) => {
   };
 
   return (
-    <div className="mx-auto max-w-md rounded-lg border border-border bg-card p-6 shadow-sm">
+    <div className="mx-auto max-w-md rounded-lg border border-border bg-card p-6 shadow-sm transition-colors duration-300">
       <div className="mb-6 text-center">
-        <h2 className="text-xl font-semibold">Upload Document</h2>
+        <div className="mx-auto w-16 h-16 mb-4 rounded-full bg-primary/10 flex items-center justify-center">
+          <span role="img" aria-label="upload" className="text-3xl">📄</span>
+        </div>
+        <h2 className="text-xl font-semibold mb-2">Upload Document</h2>
         <p className="text-sm text-muted-foreground">
-          Upload a document to start chatting with AI about its contents
+          Upload a document to start chatting with AI about its contents ✨
         </p>
       </div>
 
       <form onSubmit={handleUpload} className="flex flex-col gap-4">
         <div className="grid w-full items-center gap-1.5">
-          <label htmlFor="file-upload" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
-            Document
+          <label htmlFor="file-upload" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 flex items-center gap-1.5">
+            <span role="img" aria-label="document" className="text-base">📋</span>
+            <span>Select Document</span>
           </label>
           <Input
             id="file-upload"
@@ -80,20 +84,30 @@ const FileUpload = ({ sessionId, onUploadSuccess }) => {
             onChange={handleFileChange}
             disabled={isUploading}
             accept=".pdf,.txt,.doc,.docx"
-            className="cursor-pointer"
+            className="cursor-pointer transition-colors duration-300"
           />
+          {file && (
+            <p className="mt-1 text-xs text-muted-foreground flex items-center gap-1">
+              <span role="img" aria-label="check" className="text-green-500">✅</span>
+              <span>Selected: {file.name}</span>
+            </p>
+          )}
         </div>
 
         {errorMessage && (
-          <div className="mb-4 rounded-md bg-destructive/15 p-3 text-sm text-destructive">
-            {errorMessage}
+          <div className="mb-4 rounded-md bg-destructive/15 p-3 text-sm text-destructive flex items-start gap-2">
+            <span role="img" aria-label="error" className="mt-0.5">⚠️</span>
+            <span>{errorMessage}</span>
           </div>
         )}
 
         {isUploading && (
           <div className="mb-4">
             <div className="mb-1 flex justify-between text-xs">
-              <span>Uploading...</span>
+              <span className="flex items-center gap-1">
+                <span role="img" aria-label="upload" className="text-xs">📤</span>
+                <span>Uploading...</span>
+              </span>
               <span>{progress}%</span>
             </div>
             <div className="h-2 w-full overflow-hidden rounded-full bg-secondary">
@@ -108,9 +122,19 @@ const FileUpload = ({ sessionId, onUploadSuccess }) => {
         <Button 
           type="submit" 
           disabled={isUploading || !file}
-          className="w-full"
+          className="w-full transition-colors duration-300 flex items-center justify-center gap-2"
         >
-          {isUploading ? 'Uploading...' : 'Upload Document'}
+          {isUploading ? (
+            <>
+              <span>Processing...</span>
+              <span role="img" aria-label="processing" className="animate-pulse">⏳</span>
+            </>
+          ) : (
+            <>
+              <span>Upload Document</span>
+              <span role="img" aria-label="upload">🚀</span>
+            </>
+          )}
         </Button>
       </form>
     </div>

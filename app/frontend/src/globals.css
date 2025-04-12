@@ -70,7 +70,46 @@
   * {
     @apply border-border;
   }
+  
   body {
     @apply bg-background text-foreground;
+    transition: background-color 0.3s ease, color 0.3s ease;
+  }
+  
+  /* Custom scrollbar styles */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  
+  ::-webkit-scrollbar-track {
+    @apply bg-secondary/50 rounded-full;
+  }
+  
+  ::-webkit-scrollbar-thumb {
+    @apply bg-primary/40 rounded-full transition-colors duration-300;
+  }
+  
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-primary/60;
+  }
+  
+  /* Additional transitions for theme elements */
+  button, a, input, textarea, select {
+    transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+  }
+  
+  /* Animation for the loading dots */
+  @keyframes loading {
+    0%, 100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-5px);
+    }
+  }
+  
+  .animate-loading {
+    animation: loading 1s infinite ease-in-out;
   }
 } 

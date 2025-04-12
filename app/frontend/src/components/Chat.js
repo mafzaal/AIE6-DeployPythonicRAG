@@ -75,18 +75,17 @@ const Chat = ({ sessionId, docDescription, suggestedQuestions, selectedQuestion,
   };
 
   return (
-    <div className="flex h-[600px] flex-col rounded-lg">
+    <div className="flex h-[600px] flex-col rounded-lg border border-border bg-card/50 transition-colors duration-300">
       <div className="flex-1 overflow-y-auto p-4">
         {messages.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center text-center">
-            <div className="mb-4 rounded-full bg-primary/10 p-4">
-              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-primary">
-                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
-              </svg>
+            <div className="mb-4 rounded-full bg-primary/10 p-6 transition-all duration-300">
+              <span role="img" aria-label="chat" className="text-4xl">💬</span>
             </div>
-            <h3 className="mb-1 text-lg font-semibold">Welcome to the RAG Chat!</h3>
-            <p className="text-sm text-muted-foreground">
-              Ask questions about the document you uploaded or click one of the suggested questions above.
+            <h3 className="mb-2 text-xl font-semibold">Welcome to the RAG Chat!</h3>
+            <p className="text-sm text-muted-foreground max-w-md">
+              Ask questions about your document or click one of the suggested questions above.
+              I'm here to help you understand the content! ✨
             </p>
           </div>
         ) : (
@@ -97,15 +96,23 @@ const Chat = ({ sessionId, docDescription, suggestedQuestions, selectedQuestion,
             >
               <div 
                 className={`
-                  max-w-[80%] rounded-lg px-4 py-2 
+                  flex items-start gap-2 max-w-[80%] rounded-lg px-4 py-3 shadow-sm
                   ${message.sender === 'user' 
                     ? 'bg-primary text-primary-foreground' 
                     : message.isError 
                       ? 'bg-destructive text-destructive-foreground' 
                       : 'bg-secondary text-secondary-foreground'
                   }
+                  transition-all duration-200
                 `}
               >
+                <span className="mt-1 text-lg">
+                  {message.sender === 'user' 
+                    ? '👤' 
+                    : message.isError 
+                      ? '⚠️' 
+                      : '🤖'}
+                </span>
                 <div className="text-sm">{message.text}</div>
               </div>
             </div>
@@ -113,8 +120,9 @@ const Chat = ({ sessionId, docDescription, suggestedQuestions, selectedQuestion,
         )}
         {isLoading && (
           <div className="mb-4 flex justify-start">
-            <div className="max-w-[80%] rounded-lg bg-secondary px-4 py-2 text-secondary-foreground">
-              <div className="flex space-x-2">
+            <div className="flex items-start gap-2 max-w-[80%] rounded-lg px-4 py-3 bg-secondary text-secondary-foreground shadow-sm">
+              <span className="mt-1 text-lg">🤖</span>
+              <div className="flex items-center space-x-2">
                 <div className="h-2 w-2 animate-bounce rounded-full bg-primary"></div>
                 <div className="h-2 w-2 animate-bounce rounded-full bg-primary" style={{ animationDelay: '0.2s' }}></div>
                 <div className="h-2 w-2 animate-bounce rounded-full bg-primary" style={{ animationDelay: '0.4s' }}></div>
@@ -125,7 +133,7 @@ const Chat = ({ sessionId, docDescription, suggestedQuestions, selectedQuestion,
         <div ref={messagesEndRef} />
       </div>
       
-      <form onSubmit={handleSubmit} className="border-t border-border p-4">
+      <form onSubmit={handleSubmit} className="border-t border-border p-4 transition-colors duration-300">
         <div className="flex space-x-2">
           <Input
             id="chat-input"
@@ -133,15 +141,17 @@ const Chat = ({ sessionId, docDescription, suggestedQuestions, selectedQuestion,
             type="text"
             value={input}
             onChange={handleInputChange}
-            placeholder="Ask a question about your document..."
+            placeholder="Ask a question about your document... 🔍"
             disabled={isLoading}
-            className="flex-1"
+            className="flex-1 transition-colors duration-300"
           />
           <Button 
             type="submit" 
             disabled={isLoading || !input.trim()}
+            className="transition-colors duration-300 flex items-center gap-2"
           >
-            Send
+            <span>Send</span>
+            <span role="img" aria-label="send">📤</span>
           </Button>
         </div>
       </form>

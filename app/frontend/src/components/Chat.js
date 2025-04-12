@@ -148,8 +148,8 @@ const Chat = ({ sessionId, docDescription, suggestedQuestions, selectedQuestion,
   );
 
   return (
-    <div className="flex h-[600px] flex-col rounded-lg border border-border bg-card/50 transition-colors duration-300">
-      <div className="flex-1 overflow-y-auto p-4">
+    <div className="flex flex-col rounded-lg border border-border bg-card/50 transition-colors duration-300 h-[600px]">
+      <div className="flex-1 overflow-y-auto p-4 w-full">
         {messages.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center text-center">
             <div className="mb-4 rounded-full bg-primary/10 p-6 transition-all duration-300">
@@ -162,45 +162,47 @@ const Chat = ({ sessionId, docDescription, suggestedQuestions, selectedQuestion,
             </p>
           </div>
         ) : (
-          messages.map((message, index) => (
-            <div 
-              key={index} 
-              className={`mb-4 flex ${message.sender === 'user' ? 'justify-end' : 'justify-start'}`}
-            >
+          <div className="w-full">
+            {messages.map((message, index) => (
               <div 
-                className={`
-                  flex items-start gap-2 max-w-[80%] rounded-lg px-4 py-3 shadow-sm
-                  ${message.sender === 'user' 
-                    ? 'bg-primary text-primary-foreground' 
-                    : message.isError 
-                      ? 'bg-destructive text-destructive-foreground' 
-                      : 'bg-secondary text-secondary-foreground'
-                  }
-                  transition-all duration-200
-                `}
+                key={index} 
+                className={`mb-4 flex ${message.sender === 'user' ? 'justify-end' : 'justify-start'} w-full`}
               >
-                <span className="mt-1 text-lg">
-                  {message.sender === 'user' 
-                    ? '👤' 
-                    : message.isError 
-                      ? '⚠️' 
-                      : '🤖'}
-                </span>
-                <div className={`text-sm ${message.sender === 'ai' ? 'markdown-content' : ''}`}>
-                  {message.sender === 'user' ? (
-                    message.text
-                  ) : (
-                    <MarkdownContent content={message.text} />
-                  )}
+                <div 
+                  className={`
+                    flex items-start gap-2 max-w-[80%] rounded-lg px-4 py-3 shadow-sm
+                    ${message.sender === 'user' 
+                      ? 'bg-primary text-primary-foreground' 
+                      : message.isError 
+                        ? 'bg-destructive text-destructive-foreground' 
+                        : 'bg-secondary text-secondary-foreground'
+                    }
+                    transition-all duration-200
+                  `}
+                >
+                  <span className="mt-1 text-lg flex-shrink-0">
+                    {message.sender === 'user' 
+                      ? '👤' 
+                      : message.isError 
+                        ? '⚠️' 
+                        : '🤖'}
+                  </span>
+                  <div className={`text-sm ${message.sender === 'ai' ? 'markdown-content' : ''} overflow-hidden`}>
+                    {message.sender === 'user' ? (
+                      message.text
+                    ) : (
+                      <MarkdownContent content={message.text} />
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
-          ))
+            ))}
+          </div>
         )}
         {isLoading && (
-          <div className="mb-4 flex justify-start">
+          <div className="mb-4 flex justify-start w-full">
             <div className="flex items-start gap-2 max-w-[80%] rounded-lg px-4 py-3 bg-secondary text-secondary-foreground shadow-sm">
-              <span className="mt-1 text-lg">🤖</span>
+              <span className="mt-1 text-lg flex-shrink-0">🤖</span>
               <div className="flex items-center space-x-2">
                 <div className="h-2 w-2 animate-bounce rounded-full bg-primary"></div>
                 <div className="h-2 w-2 animate-bounce rounded-full bg-primary" style={{ animationDelay: '0.2s' }}></div>
@@ -212,8 +214,8 @@ const Chat = ({ sessionId, docDescription, suggestedQuestions, selectedQuestion,
         <div ref={messagesEndRef} />
       </div>
       
-      <form onSubmit={handleSubmit} className="border-t border-border p-4 transition-colors duration-300">
-        <div className="flex space-x-2">
+      <form onSubmit={handleSubmit} className="border-t border-border p-4 transition-colors duration-300 w-full">
+        <div className="flex space-x-2 w-full">
           <Input
             id="chat-input"
             ref={inputRef}
@@ -227,10 +229,10 @@ const Chat = ({ sessionId, docDescription, suggestedQuestions, selectedQuestion,
           <Button 
             type="submit" 
             disabled={isLoading || !input.trim()}
-            className="transition-colors duration-300 flex items-center gap-2"
+            className="transition-colors duration-300 flex items-center gap-2 flex-shrink-0"
           >
             <span>Send</span>
-            <span role="img" aria-label="send">📤</span>
+            <span role="img" aria-label="send" className="flex-shrink-0">📤</span>
           </Button>
         </div>
       </form>

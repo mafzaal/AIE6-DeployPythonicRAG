@@ -165,4 +165,58 @@
     max-width: 100%;
     height: auto;
   }
+}
+
+/* Thin scrollbar style */
+.scrollbar-thin::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-track {
+  @apply bg-secondary/30 rounded-full;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  @apply bg-primary/30 rounded-full transition-colors duration-300;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  @apply bg-primary/50;
+}
+
+/* Make all scrollable areas use the thin scrollbar */
+.overflow-y-auto,
+.overflow-x-auto {
+  @apply scrollbar-thin;
+}
+
+/* Additional content height limits */
+.line-clamp-3 {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Fix layout shifts with transitions */
+.max-w-md, 
+.max-w-4xl,
+.container {
+  width: 100%;
+}
+
+/* Ensure fixed layout for markdown content */
+.markdown-content img,
+.markdown-content pre,
+.markdown-content table {
+  max-width: 100%;
+  width: auto !important;
+  overflow-x: auto;
+}
+
+/* Prevent layout shifts when switching files */
+button, a {
+  backface-visibility: hidden;
+  transform: translateZ(0);
 } 

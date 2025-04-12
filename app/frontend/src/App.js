@@ -58,8 +58,8 @@ function App() {
 
   return (
     <ThemeProvider defaultTheme="light">
-      <div className="min-h-screen bg-background text-foreground transition-colors duration-300">
-        <header className="bg-primary text-primary-foreground py-4 px-6 shadow-md">
+      <div className="min-h-screen bg-background text-foreground transition-colors duration-300 flex flex-col">
+        <header className="bg-primary text-primary-foreground py-4 px-6 shadow-md w-full">
           <div className="container mx-auto flex items-center justify-between">
             <div className="flex items-center gap-2">
               <span role="img" aria-label="brain" className="text-2xl">🧠</span>
@@ -68,65 +68,71 @@ function App() {
             <ThemeToggle />
           </div>
         </header>
-        <main className="container mx-auto py-6 px-4">
-          {showUploadForm && (
-            <FileUpload 
-              sessionId={sessionId} 
-              onUploadSuccess={handleFileUploadSuccess}
-            />
-          )}
+        
+        <main className="container mx-auto py-6 px-4 flex-1 flex items-center justify-center">
+          <div className="w-full max-w-4xl">
+            {showUploadForm && (
+              <FileUpload 
+                sessionId={sessionId} 
+                onUploadSuccess={handleFileUploadSuccess}
+              />
+            )}
 
-          {!showUploadForm && uploadedFiles.length > 0 && (
-            <div className="rounded-lg border border-border bg-card p-6 shadow-sm transition-colors duration-300">
-              <FileManager 
-                files={uploadedFiles}
-                activeFileIndex={activeFileIndex}
-                onSelectFile={handleSelectFile}
-                onUploadNew={handleUploadNew}
-              />
-              
-              <div className="rounded-md bg-muted p-4 mb-4 transition-colors duration-300">
-                <h3 className="font-medium mb-2 flex items-center gap-2">
-                  <span role="img" aria-label="document" className="text-xl">
-                    {activeFile.name.toLowerCase().endsWith('.pdf') ? '📕' : '📄'}
-                  </span>
-                  <span>File: <span className="font-bold">{activeFile.name}</span></span>
-                </h3>
-                <p className="text-sm text-muted-foreground">{activeFile.description}</p>
-              </div>
-              
-              {activeFile.suggestedQuestions && activeFile.suggestedQuestions.length > 0 && (
-                <div className="space-y-2 bg-card p-4 rounded-md border border-border mb-4 transition-colors duration-300">
-                  <h4 className="text-sm font-medium flex items-center gap-2">
-                    <span role="img" aria-label="lightbulb" className="text-xl">💡</span>
-                    <span>Suggested questions:</span>
-                  </h4>
-                  <div className="flex flex-wrap gap-2">
-                    {activeFile.suggestedQuestions.map((question, idx) => (
-                      <button
-                        key={idx}
-                        className="text-xs bg-secondary text-secondary-foreground px-3 py-2 rounded-full hover:bg-secondary/80 transition-colors duration-200 flex items-center gap-1"
-                        onClick={() => handleQuestionSelect(question)}
-                      >
-                        <span role="img" aria-label="question" className="text-xs">❓</span>
-                        {question}
-                      </button>
-                    ))}
-                  </div>
+            {!showUploadForm && uploadedFiles.length > 0 && (
+              <div className="rounded-lg border border-border bg-card p-6 shadow-sm transition-colors duration-300 w-full">
+                <FileManager 
+                  files={uploadedFiles}
+                  activeFileIndex={activeFileIndex}
+                  onSelectFile={handleSelectFile}
+                  onUploadNew={handleUploadNew}
+                />
+                
+                <div className="rounded-md bg-muted p-4 mb-4 transition-colors duration-300 min-h-[100px]">
+                  <h3 className="font-medium mb-2 flex items-center gap-2">
+                    <span role="img" aria-label="document" className="text-xl flex-shrink-0">
+                      {activeFile.name.toLowerCase().endsWith('.pdf') ? '📕' : '📄'}
+                    </span>
+                    <span className="truncate">File: <span className="font-bold">{activeFile.name}</span></span>
+                  </h3>
+                  <p className="text-sm text-muted-foreground line-clamp-3">{activeFile.description}</p>
                 </div>
-              )}
-              
-              <Chat 
-                sessionId={activeFile.sessionId}
-                docDescription={activeFile.description}
-                suggestedQuestions={activeFile.suggestedQuestions}
-                selectedQuestion={selectedQuestion}
-                onQuestionSelected={() => setSelectedQuestion('')}
-              />
-            </div>
-          )}
+                
+                <div className="min-h-[100px] mb-4">
+                  {activeFile.suggestedQuestions && activeFile.suggestedQuestions.length > 0 && (
+                    <div className="space-y-2 bg-card p-4 rounded-md border border-border transition-colors duration-300 h-full">
+                      <h4 className="text-sm font-medium flex items-center gap-2">
+                        <span role="img" aria-label="lightbulb" className="text-xl flex-shrink-0">💡</span>
+                        <span>Suggested questions:</span>
+                      </h4>
+                      <div className="flex flex-wrap gap-2 overflow-y-auto max-h-[100px] pb-1">
+                        {activeFile.suggestedQuestions.map((question, idx) => (
+                          <button
+                            key={idx}
+                            className="text-xs bg-secondary text-secondary-foreground px-3 py-2 rounded-full hover:bg-secondary/80 transition-colors duration-200 flex items-center gap-1 flex-shrink-0"
+                            onClick={() => handleQuestionSelect(question)}
+                          >
+                            <span role="img" aria-label="question" className="text-xs flex-shrink-0">❓</span>
+                            <span className="truncate max-w-[200px]">{question}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+                
+                <Chat 
+                  sessionId={activeFile.sessionId}
+                  docDescription={activeFile.description}
+                  suggestedQuestions={activeFile.suggestedQuestions}
+                  selectedQuestion={selectedQuestion}
+                  onQuestionSelected={() => setSelectedQuestion('')}
+                />
+              </div>
+            )}
+          </div>
         </main>
-        <footer className="container mx-auto py-4 px-6 text-center text-sm text-muted-foreground">
+        
+        <footer className="w-full py-4 px-6 text-center text-sm text-muted-foreground">
           <p>Made with <span role="img" aria-label="heart" className="text-red-500">❤️</span> and Shadcn/UI</p>
         </footer>
       </div>

@@ -43,9 +43,11 @@ RUN ls -la /app/static/ /app/static/css/ /app/static/js/
 
 # Set environment variables
 ENV PYTHONPATH=/app
+ENV PORT=7860
+ENV HOST=0.0.0.0
 
-# Expose the application port
-EXPOSE 8000
+# Expose the Hugging Face required port
+EXPOSE 7860
 
 # Start the application
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "7860"]

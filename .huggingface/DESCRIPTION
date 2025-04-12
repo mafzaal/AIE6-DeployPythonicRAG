@@ -1,0 +1,9 @@
+---
+title: RAG Chat with Document Dashboard & Quiz
+emoji: 🧠
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+pinned: true
+app_port: 7860
+--- 

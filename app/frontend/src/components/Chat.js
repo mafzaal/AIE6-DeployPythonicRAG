@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import axios from 'axios';
-import './Chat.css';
+import { Button } from './ui/button';
+import { Input } from './ui/input';
 
 const Chat = ({ sessionId }) => {
   const [messages, setMessages] = useState([]);
@@ -65,34 +66,49 @@ const Chat = ({ sessionId }) => {
   };
 
   return (
-    <div className="chat">
-      <div className="chat-messages">
+    <div className="flex h-[600px] flex-col rounded-lg">
+      <div className="flex-1 overflow-y-auto p-4">
         {messages.length === 0 ? (
-          <div className="welcome-message">
-            <h3>Welcome to the RAG Chat!</h3>
-            <p>Ask questions about the document you uploaded.</p>
+          <div className="flex h-full flex-col items-center justify-center text-center">
+            <div className="mb-4 rounded-full bg-primary/10 p-4">
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-primary">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+              </svg>
+            </div>
+            <h3 className="mb-1 text-lg font-semibold">Welcome to the RAG Chat!</h3>
+            <p className="text-sm text-muted-foreground">
+              Ask questions about the document you uploaded.
+            </p>
           </div>
         ) : (
           messages.map((message, index) => (
             <div 
               key={index} 
-              className={`message ${message.sender === 'user' ? 'user-message' : 'ai-message'} ${message.isError ? 'error' : ''}`}
+              className={`mb-4 flex ${message.sender === 'user' ? 'justify-end' : 'justify-start'}`}
             >
-              <div className="message-sender">
-                {message.sender === 'user' ? 'You' : 'AI'}
+              <div 
+                className={`
+                  max-w-[80%] rounded-lg px-4 py-2 
+                  ${message.sender === 'user' 
+                    ? 'bg-primary text-primary-foreground' 
+                    : message.isError 
+                      ? 'bg-destructive text-destructive-foreground' 
+                      : 'bg-secondary text-secondary-foreground'
+                  }
+                `}
+              >
+                <div className="text-sm">{message.text}</div>
               </div>
-              <div className="message-text">{message.text}</div>
             </div>
           ))
         )}
         {isLoading && (
-          <div className="message ai-message loading">
-            <div className="message-sender">AI</div>
-            <div className="message-text">
-              <div className="loading-indicator">
-                <div className="dot"></div>
-                <div className="dot"></div>
-                <div className="dot"></div>
+          <div className="mb-4 flex justify-start">
+            <div className="max-w-[80%] rounded-lg bg-secondary px-4 py-2 text-secondary-foreground">
+              <div className="flex space-x-2">
+                <div className="h-2 w-2 animate-bounce rounded-full bg-primary"></div>
+                <div className="h-2 w-2 animate-bounce rounded-full bg-primary" style={{ animationDelay: '0.2s' }}></div>
+                <div className="h-2 w-2 animate-bounce rounded-full bg-primary" style={{ animationDelay: '0.4s' }}></div>
               </div>
             </div>
           </div>
@@ -100,22 +116,23 @@ const Chat = ({ sessionId }) => {
         <div ref={messagesEndRef} />
       </div>
       
-      <form onSubmit={handleSubmit} className="chat-input-form">
-        <input
-          type="text"
-          value={input}
-          onChange={handleInputChange}
-          placeholder="Ask a question about your document..."
-          disabled={isLoading}
-          className="chat-input"
-        />
-        <button 
-          type="submit" 
-          disabled={isLoading || !input.trim()}
-          className="send-button"
-        >
-          Send
-        </button>
+      <form onSubmit={handleSubmit} className="border-t border-border p-4">
+        <div className="flex space-x-2">
+          <Input
+            type="text"
+            value={input}
+            onChange={handleInputChange}
+            placeholder="Ask a question about your document..."
+            disabled={isLoading}
+            className="flex-1"
+          />
+          <Button 
+            type="submit" 
+            disabled={isLoading || !input.trim()}
+          >
+            Send
+          </Button>
+        </div>
       </form>
     </div>
   );

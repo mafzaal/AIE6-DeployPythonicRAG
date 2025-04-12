@@ -43,3 +43,23 @@ class ChatOpenAI:
             content = chunk.choices[0].delta.content
             if content is not None:
                 yield content
+                
+    async def acreate_single_response(self, prompt_text, **kwargs):
+        """
+        Create a single non-streamed response asynchronously.
+        
+        :param prompt_text: Text prompt as a string
+        :param kwargs: Additional parameters to pass to the completion API
+        :return: The text response
+        """
+        messages = [{"role": "user", "content": prompt_text}]
+        
+        client = AsyncOpenAI()
+        response = await client.chat.completions.create(
+            model=self.model_name,
+            messages=messages,
+            stream=False,
+            **kwargs
+        )
+        
+        return response.choices[0].message.content

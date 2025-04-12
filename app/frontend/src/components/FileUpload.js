@@ -44,7 +44,11 @@ const FileUpload = ({ sessionId, onUploadSuccess }) => {
 
       if (response.data.status === 'success') {
         setIsUploading(false);
-        onUploadSuccess(file.name);
+        onUploadSuccess(
+          file.name, 
+          response.data.document_description || 'No description available', 
+          response.data.suggested_questions || []
+        );
       } else {
         setIsUploading(false);
         setErrorMessage(response.data.message || 'Upload failed');

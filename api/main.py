@@ -98,7 +98,51 @@ async def upload_file(file: UploadFile = File(...), session_id: str = Form(...))
             # Store the retrieval pipeline in the user session
             user_sessions[session_id] = retrieval_pipeline
             
-            return {"status": "success", "message": f"Processed {file.filename}", "session_id": session_id}
+            # Generate document description and suggested questions
+            doc_content = "\n".join(texts[:5])  # Use first few chunks for summary
+            
+            description_prompt = f"""
+            Please provide a brief description of this document in 2-3 sentences:
+            {doc_content}
+            """
+            
+            questions_prompt = f"""
+            Based on this document content, please suggest 3 specific questions that would be informative to ask:
+            {doc_content}
+            
+            Format your response as a JSON array with 3 question strings.
+            """
+            
+            # Get document description
+            description_response = await chat_openai.acreate_single_response(description_prompt)
+            document_description = description_response.strip()
+            
+            # Get suggested questions
+            questions_response = await chat_openai.acreate_single_response(questions_prompt)
+            
+            # Try to parse the questions as JSON, or extract them as best as possible
+            try:
+                import json
+                suggested_questions = json.loads(questions_response)
+            except:
+                # Extract questions with a fallback method
+                import re
+                questions = re.findall(r'["\']([^"\']+)["\']', questions_response)
+                if not questions or len(questions) < 3:
+                    questions = [q.strip() for q in questions_response.split("\n") if "?" in q]
+                if not questions or len(questions) < 3:
+                    questions = ["What is the main topic of this document?", 
+                                "What are the key points discussed in the document?", 
+                                "How can I apply the information in this document?"]
+                suggested_questions = questions[:3]
+            
+            return {
+                "status": "success", 
+                "message": f"Processed {file.filename}", 
+                "session_id": session_id,
+                "document_description": document_description,
+                "suggested_questions": suggested_questions
+            }
             
         finally:
             # Clean up the temporary file

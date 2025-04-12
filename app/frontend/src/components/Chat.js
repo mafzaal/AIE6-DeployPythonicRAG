@@ -3,11 +3,12 @@ import axios from 'axios';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 
-const Chat = ({ sessionId }) => {
+const Chat = ({ sessionId, docDescription, suggestedQuestions, selectedQuestion, onQuestionSelected }) => {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef(null);
+  const inputRef = useRef(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -16,6 +17,14 @@ const Chat = ({ sessionId }) => {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  // Handle when a suggested question is selected
+  useEffect(() => {
+    if (selectedQuestion) {
+      setInput(selectedQuestion);
+      onQuestionSelected(); // Clear the selected question after setting it
+    }
+  }, [selectedQuestion, onQuestionSelected]);
 
   const handleInputChange = (e) => {
     setInput(e.target.value);
@@ -77,7 +86,7 @@ const Chat = ({ sessionId }) => {
             </div>
             <h3 className="mb-1 text-lg font-semibold">Welcome to the RAG Chat!</h3>
             <p className="text-sm text-muted-foreground">
-              Ask questions about the document you uploaded.
+              Ask questions about the document you uploaded or click one of the suggested questions above.
             </p>
           </div>
         ) : (
@@ -119,6 +128,8 @@ const Chat = ({ sessionId }) => {
       <form onSubmit={handleSubmit} className="border-t border-border p-4">
         <div className="flex space-x-2">
           <Input
+            id="chat-input"
+            ref={inputRef}
             type="text"
             value={input}
             onChange={handleInputChange}

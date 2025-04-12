@@ -9,6 +9,54 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import Quiz from './Quiz';
 
+// Helper function to parse thinking and answer sections
+const parseThinkingAnswer = (text) => {
+  const thinkingMatch = /<think>([\s\S]*?)<\/think>/i.exec(text);
+  
+  // If thinking section is found
+  if (thinkingMatch) {
+    // Try to find answer section after the thinking section
+    const thinkingEndIndex = thinkingMatch.index + thinkingMatch[0].length;
+    const restOfText = text.substring(thinkingEndIndex).trim();
+    
+    // Check for explicit answer tag
+    const answerMatch = /<answer>([\s\S]*?)(<\/answer>|$)/i.exec(restOfText);
+    
+    if (answerMatch) {
+      // Both thinking and answer tags found
+      return {
+        thinking: thinkingMatch[1].trim(),
+        answer: answerMatch[1].trim(),
+        hasFormatting: true
+      };
+    } else {
+      // Only thinking tag found, treat the rest as the answer
+      return {
+        thinking: thinkingMatch[1].trim(),
+        answer: restOfText,
+        hasFormatting: true
+      };
+    }
+  }
+  
+  // Check if there's just an answer tag without thinking
+  const answerMatch = /<answer>([\s\S]*?)(<\/answer>|$)/i.exec(text);
+  if (answerMatch) {
+    return {
+      thinking: "",
+      answer: answerMatch[1].trim(),
+      hasFormatting: true
+    };
+  }
+  
+  // If no formatting is found, return the original text as the answer
+  return {
+    thinking: '',
+    answer: text,
+    hasFormatting: false
+  };
+};
+
 const Chat = ({ sessionId, docDescription, suggestedQuestions, selectedQuestion, onQuestionSelected }) => {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
@@ -19,6 +67,7 @@ const Chat = ({ sessionId, docDescription, suggestedQuestions, selectedQuestion,
   const [quizQuestions, setQuizQuestions] = useState([]);
   const [quizLoading, setQuizLoading] = useState(false);
   const [quizResults, setQuizResults] = useState(null);
+  const [expandedThinking, setExpandedThinking] = useState({});
   
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
@@ -44,6 +93,13 @@ const Chat = ({ sessionId, docDescription, suggestedQuestions, selectedQuestion,
     setInput(e.target.value);
   };
 
+  const toggleThinking = (messageId) => {
+    setExpandedThinking(prev => ({
+      ...prev,
+      [messageId]: !prev[messageId]
+    }));
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     
@@ -55,7 +111,7 @@ const Chat = ({ sessionId, docDescription, suggestedQuestions, selectedQuestion,
     // Add user message to chat
     setMessages(prevMessages => [
       ...prevMessages, 
-      { text: userMessage, sender: 'user' }
+      { text: userMessage, sender: 'user', id: Date.now() }
     ]);
     
     // Check if user is explicitly asking for a quiz
@@ -73,11 +129,14 @@ const Chat = ({ sessionId, docDescription, suggestedQuestions, selectedQuestion,
     
     if (isQuizRequest && !showQuiz && !quizLoading) {
       // Add user message acknowledging quiz request
+      const messageId = Date.now();
       setMessages(prevMessages => [
         ...prevMessages, 
         { 
           text: "I'd be happy to create a quiz based on this document! Generating questions now...", 
-          sender: 'ai' 
+          sender: 'ai',
+          id: messageId,
+          hasFormatting: false
         }
       ]);
       
@@ -94,10 +153,21 @@ const Chat = ({ sessionId, docDescription, suggestedQuestions, selectedQuestion,
         query: userMessage
       });
       
+      // Parse the response for thinking and answer sections
+      const messageId = Date.now();
+      const parsedResponse = parseThinkingAnswer(response.data.response);
+      
       // Add AI response to chat
       setMessages(prevMessages => [
         ...prevMessages, 
-        { text: response.data.response, sender: 'ai' }
+        { 
+          text: response.data.response, 
+          sender: 'ai',
+          id: messageId,
+          thinking: parsedResponse.thinking,
+          answer: parsedResponse.answer,
+          hasFormatting: parsedResponse.hasFormatting
+        }
       ]);
       
       // Increment question count after successful response
@@ -117,7 +187,8 @@ const Chat = ({ sessionId, docDescription, suggestedQuestions, selectedQuestion,
         { 
           text: 'Sorry, there was an error processing your request.', 
           sender: 'ai', 
-          isError: true 
+          isError: true,
+          id: Date.now() 
         }
       ]);
     } finally {
@@ -146,7 +217,9 @@ const Chat = ({ sessionId, docDescription, suggestedQuestions, selectedQuestion,
         { 
           text: 'Sorry, there was an error generating the quiz. Please try again later.', 
           sender: 'ai', 
-          isError: true 
+          isError: true,
+          id: Date.now(),
+          hasFormatting: false
         }
       ]);
     } finally {
@@ -163,7 +236,9 @@ const Chat = ({ sessionId, docDescription, suggestedQuestions, selectedQuestion,
       ...prevMessages,
       { 
         text: "I'll create a knowledge quiz based on this document. Please wait a moment...", 
-        sender: 'ai' 
+        sender: 'ai',
+        id: Date.now(),
+        hasFormatting: false 
       }
     ]);
     
@@ -178,7 +253,9 @@ const Chat = ({ sessionId, docDescription, suggestedQuestions, selectedQuestion,
       ...prevMessages,
       { 
         text: "No problem! Feel free to continue asking questions about the document.", 
-        sender: 'ai' 
+        sender: 'ai',
+        id: Date.now(),
+        hasFormatting: false
       }
     ]);
   };
@@ -202,7 +279,12 @@ ${results.score >= 80
     
     setMessages(prevMessages => [
       ...prevMessages,
-      { text: resultMessage, sender: 'ai' }
+      { 
+        text: resultMessage, 
+        sender: 'ai',
+        id: Date.now(),
+        hasFormatting: false
+      }
     ]);
   };
 
@@ -300,7 +382,7 @@ ${results.score >= 80
           <div className="w-full">
             {messages.map((message, index) => (
               <div 
-                key={index} 
+                key={message.id || index} 
                 className={`mb-4 flex ${message.sender === 'user' ? 'justify-end' : 'justify-start'} w-full`}
               >
                 <div 
@@ -325,6 +407,34 @@ ${results.score >= 80
                   <div className={`text-sm ${message.sender === 'ai' ? 'markdown-content' : ''} overflow-hidden`}>
                     {message.sender === 'user' ? (
                       message.text
+                    ) : message.hasFormatting ? (
+                      <div>
+                        {message.thinking && (
+                          <div className="mb-2">
+                            <div 
+                              className="flex items-center gap-1 mb-1 cursor-pointer text-xs opacity-80"
+                              onClick={() => toggleThinking(message.id)}
+                            >
+                              <span className="text-xs">
+                                {expandedThinking[message.id] ? '▼' : '►'}
+                              </span>
+                              <span className="font-medium">
+                                {expandedThinking[message.id] ? 'Hide Thinking Process' : 'Show Thinking Process'}
+                              </span>
+                            </div>
+                            
+                            {expandedThinking[message.id] && (
+                              <div className="p-2 bg-muted/40 rounded-md border border-primary/10 text-xs leading-relaxed mb-2">
+                                <MarkdownContent content={message.thinking} />
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        
+                        <div>
+                          <MarkdownContent content={message.answer} />
+                        </div>
+                      </div>
                     ) : (
                       <MarkdownContent content={message.text} />
                     )}

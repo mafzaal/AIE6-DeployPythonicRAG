@@ -1,6 +1,7 @@
 import os
 import tempfile
 import shutil
+import json
 from typing import List
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -57,6 +58,15 @@ class QueryRequest(BaseModel):
 class QueryResponse(BaseModel):
     response: str
     session_id: str
+
+class DocumentSummaryRequest(BaseModel):
+    session_id: str
+
+class DocumentSummaryResponse(BaseModel):
+    keyTopics: List[str]
+    entities: List[str]
+    wordCloudData: List[dict]
+    documentStructure: List[dict]
 
 @app.post("/upload")
 async def upload_file(file: UploadFile = File(...), session_id: str = Form(...)):
@@ -171,6 +181,108 @@ async def query(request: QueryRequest):
         response_text += chunk
     
     return {"response": response_text, "session_id": session_id}
+
+@app.post("/document-summary", response_model=DocumentSummaryResponse)
+async def get_document_summary(request: DocumentSummaryRequest):
+    session_id = request.session_id
+    
+    # Check if session exists
+    if session_id not in user_sessions:
+        raise HTTPException(status_code=404, detail="Session not found. Please upload a document first.")
+    
+    # Get the retrieval pipeline from the session
+    retrieval_pipeline = user_sessions[session_id]
+    
+    # Get access to the document content
+    vector_db = retrieval_pipeline.vector_db_retriever
+    
+    # We'll use all the text chunks to create a comprehensive summary
+    # Get all text chunks from the vector store
+    all_texts = vector_db.get_all_texts()
+    
+    # Combine a sample of the texts (to avoid hitting token limits)
+    sample_texts = all_texts[:10] if len(all_texts) > 10 else all_texts
+    doc_content = "\n".join(sample_texts)
+    
+    # Create the LLM summary prompt
+    summary_prompt = f"""
+    Analyze the following document content and generate a structured summary in JSON format:
+    
+    ```
+    {doc_content}
+    ```
+    
+    Return ONLY a JSON object with the following structure:
+    
+    {{
+      "keyTopics": [list of 5-7 key topics in the document],
+      "entities": [list of 5-8 important named entities such as organizations, technologies, or people],
+      "wordCloudData": [
+        {{ "text": "word1", "value": frequency_score }},
+        {{ "text": "word2", "value": frequency_score }},
+        ...
+      ],
+      "documentStructure": [
+        {{ 
+          "title": "Section title",
+          "subsections": ["Subsection1", "Subsection2", ...] 
+        }},
+        ...
+      ]
+    }}
+    
+    The wordCloudData should contain 15-20 important terms with their relative frequency scores (higher numbers = more important/frequent).
+    The documentStructure should reflect the hierarchical organization of the document with main sections and their subsections.
+    """
+    
+    # Get LLM response
+    try:
+        llm = retrieval_pipeline.llm
+        response = await llm.acreate_single_response(summary_prompt)
+        
+        # Parse the JSON
+        # Find JSON content (sometimes the LLM adds extra text)
+        import re
+        json_match = re.search(r'({[\s\S]*})', response)
+        
+        if json_match:
+            json_str = json_match.group(1)
+            summary_data = json.loads(json_str)
+        else:
+            # If no JSON found, create a basic structure with an error message
+            summary_data = {
+                "keyTopics": ["Error parsing document structure"],
+                "entities": ["Please try again"],
+                "wordCloudData": [{"text": "Error", "value": 50}],
+                "documentStructure": [{"title": "Document structure unavailable", "subsections": []}]
+            }
+            
+        # Ensure the response has all required fields
+        if "keyTopics" not in summary_data:
+            summary_data["keyTopics"] = ["Topic extraction failed"]
+        if "entities" not in summary_data:
+            summary_data["entities"] = ["Entity extraction failed"]
+        if "wordCloudData" not in summary_data:
+            summary_data["wordCloudData"] = [{"text": "Data", "value": 50}]
+        if "documentStructure" not in summary_data:
+            summary_data["documentStructure"] = [{"title": "Structure unavailable", "subsections": []}]
+            
+        return summary_data
+        
+    except Exception as e:
+        # Return a fallback summary on error
+        return {
+            "keyTopics": ["Error analyzing document"],
+            "entities": ["Try refreshing the page"],
+            "wordCloudData": [
+                {"text": "Error", "value": 60},
+                {"text": "Document", "value": 40},
+                {"text": "Analysis", "value": 30}
+            ],
+            "documentStructure": [
+                {"title": "Error in document analysis", "subsections": ["Please try again"]}
+            ]
+        }
 
 # Serve the frontend
 @app.get("/")

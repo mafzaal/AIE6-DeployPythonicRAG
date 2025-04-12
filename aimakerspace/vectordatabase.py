@@ -53,6 +53,15 @@ class VectorDatabase:
             self.insert(text, np.array(embedding))
         return self
 
+    def get_all_texts(self) -> List[str]:
+        """
+        Returns all the text documents stored in the vector database.
+        
+        Returns:
+            List[str]: A list of all text documents
+        """
+        return list(self.vectors.keys())
+
 
 if __name__ == "__main__":
     list_of_text = [

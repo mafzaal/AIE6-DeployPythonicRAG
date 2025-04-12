@@ -3,8 +3,10 @@ import { v4 as uuidv4 } from 'uuid';
 import FileUpload from './components/FileUpload';
 import FileManager from './components/FileManager';
 import Chat from './components/Chat';
+import DocumentSummary from './components/DocumentSummary';
 import { ThemeProvider } from './components/ui/theme-provider';
 import { ThemeToggle } from './components/ui/theme-toggle';
+import { SettingsDialog } from './components/ui/settings-dialog';
 
 function App() {
   const [sessionId, setSessionId] = useState('');
@@ -12,6 +14,13 @@ function App() {
   const [uploadedFiles, setUploadedFiles] = useState([]);
   const [activeFileIndex, setActiveFileIndex] = useState(0);
   const [selectedQuestion, setSelectedQuestion] = useState('');
+  
+  // App settings with localStorage persistence
+  const [settings, setSettings] = useState(() => {
+    // Initialize from localStorage, default to true if not set
+    const saved = localStorage.getItem('appSettings');
+    return saved ? JSON.parse(saved) : { showDashboard: true };
+  });
 
   // Get active file data
   const activeFile = uploadedFiles[activeFileIndex] || null;
@@ -22,6 +31,15 @@ function App() {
       setSessionId(uuidv4());
     }
   }, [sessionId]);
+
+  // Save settings to localStorage when they change
+  useEffect(() => {
+    localStorage.setItem('appSettings', JSON.stringify(settings));
+  }, [settings]);
+
+  const handleSettingsChange = (newSettings) => {
+    setSettings(newSettings);
+  };
 
   const handleFileUploadSuccess = (fileName, description, questions) => {
     // Add the new file to the uploaded files array
@@ -65,7 +83,15 @@ function App() {
               <span role="img" aria-label="brain" className="text-2xl">🧠</span>
               <h1 className="text-2xl font-bold">RAG Chat</h1>
             </div>
-            <ThemeToggle />
+            <div className="flex items-center gap-4">
+              {!showUploadForm && uploadedFiles.length > 0 && (
+                <SettingsDialog 
+                  settings={settings}
+                  onSettingsChange={handleSettingsChange}
+                />
+              )}
+              <ThemeToggle />
+            </div>
           </div>
         </header>
         
@@ -96,6 +122,13 @@ function App() {
                   </h3>
                   <p className="text-sm text-muted-foreground line-clamp-3">{activeFile.description}</p>
                 </div>
+                
+                {settings.showDashboard && 
+                  <DocumentSummary 
+                    fileName={activeFile.name} 
+                    sessionId={activeFile.sessionId} 
+                  />
+                }
                 
                 <div className="min-h-[100px] mb-4">
                   {activeFile.suggestedQuestions && activeFile.suggestedQuestions.length > 0 && (

@@ -1,6 +1,6 @@
 ---
-title: DeployPythonicRAG
-emoji: 📉
+title: RAG Chat
+emoji: 🧠
 colorFrom: blue
 colorTo: purple
 sdk: docker
@@ -166,7 +166,7 @@ Simply put, this downloads the file as a temp file, we load it in with `TextFile
 
 #### ❓ QUESTION #1:
 
-Why do we want to support streaming? What about streaming is important, or useful?
+Why do we want to support streaming? What about streaming is important, or useful? **Answer:** We want to use streaming because improves user experience beause user can read the content as those generated and sent instead of waiting for all the contents generated.
 
 ### On Chat Start:
 
@@ -208,7 +208,7 @@ Now, we'll save that into our user session!
 
 #### ❓ QUESTION #2: 
 
-Why are we using User Session here? What about Python makes us need to use this? Why not just store everything in a global variable?
+Why are we using User Session here? What about Python makes us need to use this? Why not just store everything in a global variable? **Answer:** User Session is necessary because Chainlit is a web application that handles multiple concurrent users. Each user needs their own isolated chain and vector database. In Python, using global variables would cause all users to share the same state, leading to data leakage between sessions and race conditions. User Session provides proper isolation for each user's data and processing pipeline.
 
 ### On Message
 
@@ -333,7 +333,7 @@ Upload a PDF file of the recent DeepSeek-R1 paper and ask the following question
 2. What is the difference between DeepSeek-R1 and DeepSeek-R1-Zero?
 3. What is this paper about?
 
-Does this application pass your vibe check? Are there any immediate pitfalls you're noticing?
+Does this application pass your vibe check? Are there any immediate pitfalls you're noticing? **Answer:** While the application effectively demonstrates RAG capabilities, there are some limitations. The chunking strategy may split context in non-optimal ways, potentially missing key information. The system has no memory of previous conversations, so multi-turn dialogues about related topics may be less effective. The simple vector retrieval doesn't account for document structure, which may impact complex documents. Additionally, the application lacks citation capabilities to show which exact parts of the document provided the answers.
 
 ## 🚧 CHALLENGE MODE 🚧
 

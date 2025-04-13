@@ -8,6 +8,9 @@ import { ThemeProvider } from './components/ui/theme-provider';
 import { ThemeToggle } from './components/ui/theme-toggle';
 import { SettingsDialog } from './components/ui/settings-dialog';
 import { getVersionString, fetchApiVersion } from './utils/version';
+import { identifyUser } from './utils/user';
+import PromptEditor from './components/ui/PromptEditor';
+import CookieConsent from './components/ui/CookieConsent';
 
 function App() {
   const [sessionId, setSessionId] = useState('');
@@ -16,6 +19,7 @@ function App() {
   const [activeFileIndex, setActiveFileIndex] = useState(0);
   const [selectedQuestion, setSelectedQuestion] = useState('');
   const [apiVersion, setApiVersion] = useState(null);
+  const [userId, setUserId] = useState(null);
   
   // App settings with localStorage persistence
   const [settings, setSettings] = useState(() => {
@@ -33,6 +37,16 @@ function App() {
       setSessionId(uuidv4());
     }
   }, [sessionId]);
+
+  // Identify user on app load
+  useEffect(() => {
+    const identify = async () => {
+      const id = await identifyUser();
+      setUserId(id);
+    };
+    
+    identify();
+  }, []);
 
   // Fetch API version information
   useEffect(() => {
@@ -86,6 +100,11 @@ function App() {
     setSelectedQuestion(question);
   };
 
+  const handlePromptsChange = () => {
+    // Optional: Handle updates to prompts if needed
+    console.log('Prompts were updated');
+  };
+
   return (
     <ThemeProvider defaultTheme="light">
       <div className="min-h-screen bg-background text-foreground transition-colors duration-300 flex flex-col">
@@ -96,6 +115,8 @@ function App() {
               <h1 className="text-2xl font-bold">Quick Understand</h1>
             </div>
             <div className="flex items-center gap-4">
+              {userId && <PromptEditor userId={userId} onPromptsChange={handlePromptsChange} />}
+              
               {!showUploadForm && uploadedFiles.length > 0 && (
                 <SettingsDialog 
                   settings={settings}
@@ -138,7 +159,8 @@ function App() {
                 {settings.showDashboard && 
                   <DocumentSummary 
                     fileName={activeFile.name} 
-                    sessionId={activeFile.sessionId} 
+                    sessionId={activeFile.sessionId}
+                    userId={userId}
                   />
                 }
                 
@@ -167,6 +189,7 @@ function App() {
                 
                 <Chat 
                   sessionId={activeFile.sessionId}
+                  userId={userId}
                   docDescription={activeFile.description}
                   suggestedQuestions={activeFile.suggestedQuestions}
                   selectedQuestion={selectedQuestion}
@@ -196,6 +219,8 @@ function App() {
             </div>
           </div>
         </footer>
+        
+        <CookieConsent />
       </div>
     </ThemeProvider>
   );

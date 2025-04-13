@@ -16,36 +16,37 @@ const fallbackData = {
   ]
 };
 
-const DocumentSummary = ({ fileName, sessionId }) => {
+const DocumentSummary = ({ fileName, sessionId, userId }) => {
   const [activeTab, setActiveTab] = useState('overview');
   const [summaryData, setSummaryData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   
   useEffect(() => {
-    const fetchDocumentSummary = async () => {
+    const fetchSummary = async () => {
       if (!sessionId) return;
       
-      setLoading(true);
-      setError(null);
-      
       try {
-        const response = await axios.post('/document-summary', {
-          session_id: sessionId
+        setLoading(true);
+        setError('');
+        
+        // Add user ID to the request if available
+        const response = await axios.post('/document-summary', { 
+          session_id: sessionId,
+          user_id: userId 
         });
         
         setSummaryData(response.data);
-      } catch (err) {
-        console.error('Error fetching document summary:', err);
-        setError('Failed to load document summary. Please try again.');
-        setSummaryData(fallbackData);
-      } finally {
+        setLoading(false);
+      } catch (error) {
+        console.error('Error fetching document summary:', error);
+        setError('Failed to load document summary');
         setLoading(false);
       }
     };
     
-    fetchDocumentSummary();
-  }, [sessionId, fileName]);
+    fetchSummary();
+  }, [sessionId, userId]);
 
   if (loading) {
     return (

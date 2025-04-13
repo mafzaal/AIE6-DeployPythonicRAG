@@ -3,8 +3,9 @@ import tempfile
 import shutil
 import json
 import uuid
-from typing import List
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+import time
+from typing import List, Dict, Optional
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Cookie, Response, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse
@@ -46,8 +47,11 @@ text_splitter = CharacterTextSplitter()
 # Dictionary to store user sessions
 user_sessions = {}
 
-# Define prompt templates (same as in the original app)
-system_template = """\
+# Dictionary to store user-specific prompts
+user_prompts = {}
+
+# Define default prompt templates
+DEFAULT_SYSTEM_TEMPLATE = """\
 Use the following context to answer a users question. If you cannot find the answer in the context, say you don't know the answer.
 
 IMPORTANT: Format your response with your thinking process and final answer as follows:
@@ -70,27 +74,38 @@ I'm analyzing the question in relation to the context. The question asks about X
 </think>
 Based on the context, the answer is...
 """
-system_role_prompt = SystemRolePrompt(system_template)
 
-user_prompt_template = """\
+DEFAULT_USER_TEMPLATE = """\
 Context:
 {context}
 
 Question:
 {question}
 """
-user_role_prompt = UserRolePrompt(user_prompt_template)
 
+# Model for prompt templates
+class PromptTemplate(BaseModel):
+    system_template: str
+    user_template: str
+
+# Model for user identification
+class UserIdentification(BaseModel):
+    user_id: str
+
+# Extended query request with optional user ID
 class QueryRequest(BaseModel):
     session_id: str
     query: str
+    user_id: Optional[str] = None
 
 class QueryResponse(BaseModel):
     response: str
     session_id: str
 
+# Document summary models
 class DocumentSummaryRequest(BaseModel):
     session_id: str
+    user_id: Optional[str] = None
 
 class DocumentSummaryResponse(BaseModel):
     keyTopics: List[str]
@@ -98,6 +113,7 @@ class DocumentSummaryResponse(BaseModel):
     wordCloudData: List[dict]
     documentStructure: List[dict]
 
+# Quiz models
 class QuizQuestion(BaseModel):
     id: str
     text: str
@@ -107,14 +123,61 @@ class QuizQuestion(BaseModel):
 class GenerateQuizRequest(BaseModel):
     session_id: str
     num_questions: int = 5
+    user_id: Optional[str] = None
 
 class GenerateQuizResponse(BaseModel):
     questions: List[QuizQuestion]
 
+# Helper function to get or create a user ID
+def get_or_create_user_id(request: Request, response: Response) -> str:
+    # Try to get user ID from cookie
+    user_id = request.cookies.get("user_id")
+    
+    # If no user ID exists, create a new one
+    if not user_id:
+        user_id = str(uuid.uuid4())
+        # Set cookie with long expiration (1 year)
+        expires = int(time.time()) + 31536000  # 1 year in seconds
+        response.set_cookie(
+            key="user_id",
+            value=user_id,
+            expires=expires,
+            path="/",
+            httponly=True,
+            samesite="lax"
+        )
+        
+        # Initialize with default prompts
+        user_prompts[user_id] = {
+            "system_template": DEFAULT_SYSTEM_TEMPLATE,
+            "user_template": DEFAULT_USER_TEMPLATE
+        }
+    
+    return user_id
+
+# Get prompts for a specific user
+def get_user_prompts(user_id: str) -> Dict[str, str]:
+    if user_id not in user_prompts:
+        # Initialize with default prompts if not exists
+        user_prompts[user_id] = {
+            "system_template": DEFAULT_SYSTEM_TEMPLATE,
+            "user_template": DEFAULT_USER_TEMPLATE
+        }
+    
+    return user_prompts[user_id]
+
 @app.post("/upload")
-async def upload_file(file: UploadFile = File(...), session_id: str = Form(...)):
+async def upload_file(
+    file: UploadFile = File(...), 
+    session_id: str = Form(...),
+    request: Request = None,
+    response: Response = None
+):
     if file.content_type not in ["text/plain", "application/pdf"]:
         raise HTTPException(status_code=400, detail="Only text and PDF files are supported")
+    
+    # Get or create user ID
+    user_id = get_or_create_user_id(request, response) if request and response else None
     
     # Create a temporary file
     suffix = f".{file.filename.split('.')[-1]}"
@@ -142,10 +205,18 @@ async def upload_file(file: UploadFile = File(...), session_id: str = Form(...))
             # Create chat model
             chat_openai = ChatOpenAI()
             
-            # Create the retrieval pipeline
+            # Get user prompts
+            user_prompt_templates = get_user_prompts(user_id) if user_id else {
+                "system_template": DEFAULT_SYSTEM_TEMPLATE,
+                "user_template": DEFAULT_USER_TEMPLATE
+            }
+            
+            # Create the retrieval pipeline with user-specific prompts
             retrieval_pipeline = RetrievalAugmentedQAPipeline(
                 vector_db_retriever=vector_db,
-                llm=chat_openai
+                llm=chat_openai,
+                system_template=user_prompt_templates["system_template"],
+                user_template=user_prompt_templates["user_template"]
             )
             
             # Store the retrieval pipeline in the user session
@@ -189,13 +260,19 @@ async def upload_file(file: UploadFile = File(...), session_id: str = Form(...))
                                 "How can I apply the information in this document?"]
                 suggested_questions = questions[:3]
             
-            return {
+            result = {
                 "status": "success", 
                 "message": f"Processed {file.filename}", 
                 "session_id": session_id,
                 "document_description": document_description,
                 "suggested_questions": suggested_questions
             }
+            
+            # Add user_id to result if available
+            if user_id:
+                result["user_id"] = user_id
+                
+            return result
             
         finally:
             # Clean up the temporary file
@@ -207,6 +284,7 @@ async def upload_file(file: UploadFile = File(...), session_id: str = Form(...))
 @app.post("/query", response_model=QueryResponse)
 async def query(request: QueryRequest):
     session_id = request.session_id
+    user_id = request.user_id
     
     # Check if session exists
     if session_id not in user_sessions:
@@ -214,6 +292,14 @@ async def query(request: QueryRequest):
     
     # Get the retrieval pipeline from the session
     retrieval_pipeline = user_sessions[session_id]
+    
+    # Update prompts if user_id is provided and different from current
+    if user_id and retrieval_pipeline.system_template != get_user_prompts(user_id)["system_template"]:
+        user_prompt_templates = get_user_prompts(user_id)
+        retrieval_pipeline.update_templates(
+            user_prompt_templates["system_template"],
+            user_prompt_templates["user_template"]
+        )
     
     # Run the query
     result = await retrieval_pipeline.arun_pipeline(request.query)
@@ -228,6 +314,7 @@ async def query(request: QueryRequest):
 @app.post("/stream")
 async def stream_query(request: QueryRequest):
     session_id = request.session_id
+    user_id = request.user_id
     
     # Check if session exists
     if session_id not in user_sessions:
@@ -235,6 +322,14 @@ async def stream_query(request: QueryRequest):
     
     # Get the retrieval pipeline from the session
     retrieval_pipeline = user_sessions[session_id]
+    
+    # Update prompts if user_id is provided and different from current
+    if user_id and retrieval_pipeline.system_template != get_user_prompts(user_id)["system_template"]:
+        user_prompt_templates = get_user_prompts(user_id)
+        retrieval_pipeline.update_templates(
+            user_prompt_templates["system_template"],
+            user_prompt_templates["user_template"]
+        )
     
     # Run the query
     result = await retrieval_pipeline.arun_pipeline(request.query)
@@ -253,13 +348,31 @@ async def stream_query(request: QueryRequest):
     )
 
 @app.get("/stream")
-async def stream_query_get(session_id: str, query: str):
+async def stream_query_get(
+    session_id: str, 
+    query: str, 
+    user_id: Optional[str] = None,
+    request: Request = None,
+    response: Response = None
+):
+    # Get or create user ID if not provided
+    if not user_id and request and response:
+        user_id = get_or_create_user_id(request, response)
+    
     # Check if session exists
     if session_id not in user_sessions:
         raise HTTPException(status_code=404, detail="Session not found. Please upload a document first.")
     
     # Get the retrieval pipeline from the session
     retrieval_pipeline = user_sessions[session_id]
+    
+    # Update prompts if user_id is provided and different from current
+    if user_id and retrieval_pipeline.system_template != get_user_prompts(user_id)["system_template"]:
+        user_prompt_templates = get_user_prompts(user_id)
+        retrieval_pipeline.update_templates(
+            user_prompt_templates["system_template"],
+            user_prompt_templates["user_template"]
+        )
     
     # Run the query
     result = await retrieval_pipeline.arun_pipeline(query)
@@ -283,6 +396,7 @@ async def stream_query_get(session_id: str, query: str):
 @app.post("/document-summary", response_model=DocumentSummaryResponse)
 async def get_document_summary(request: DocumentSummaryRequest):
     session_id = request.session_id
+    user_id = request.user_id
     
     # Check if session exists
     if session_id not in user_sessions:
@@ -290,6 +404,14 @@ async def get_document_summary(request: DocumentSummaryRequest):
     
     # Get the retrieval pipeline from the session
     retrieval_pipeline = user_sessions[session_id]
+    
+    # Update prompts if user_id is provided and different from current
+    if user_id and retrieval_pipeline.system_template != get_user_prompts(user_id)["system_template"]:
+        user_prompt_templates = get_user_prompts(user_id)
+        retrieval_pipeline.update_templates(
+            user_prompt_templates["system_template"],
+            user_prompt_templates["user_template"]
+        )
     
     # Get access to the document content
     vector_db = retrieval_pipeline.vector_db_retriever
@@ -386,6 +508,7 @@ async def get_document_summary(request: DocumentSummaryRequest):
 async def generate_quiz(request: GenerateQuizRequest):
     session_id = request.session_id
     num_questions = min(request.num_questions, 10)  # Limit to max 10 questions
+    user_id = request.user_id
     
     # Check if session exists
     if session_id not in user_sessions:
@@ -393,6 +516,14 @@ async def generate_quiz(request: GenerateQuizRequest):
     
     # Get the retrieval pipeline from the session
     retrieval_pipeline = user_sessions[session_id]
+    
+    # Update prompts if user_id is provided and different from current
+    if user_id and retrieval_pipeline.system_template != get_user_prompts(user_id)["system_template"]:
+        user_prompt_templates = get_user_prompts(user_id)
+        retrieval_pipeline.update_templates(
+            user_prompt_templates["system_template"],
+            user_prompt_templates["user_template"]
+        )
     
     # Get access to the document content
     vector_db = retrieval_pipeline.vector_db_retriever
@@ -543,6 +674,78 @@ def generate_fallback_questions(num_questions: int) -> List[QuizQuestion]:
     ]
     return fallback_questions[:num_questions]
 
+# New endpoint to get user prompts
+@app.get("/prompts")
+async def get_prompts(
+    request: Request,
+    response: Response,
+    user_id: Optional[str] = None
+):
+    # Get or create user ID if not provided
+    if not user_id:
+        user_id = get_or_create_user_id(request, response)
+    
+    # Get user prompts
+    prompts = get_user_prompts(user_id)
+    
+    return {
+        "user_id": user_id,
+        "system_template": prompts["system_template"],
+        "user_template": prompts["user_template"]
+    }
+
+# New endpoint to update user prompts
+@app.post("/prompts")
+async def update_prompts(
+    prompt_template: PromptTemplate,
+    request: Request,
+    response: Response,
+    user_id: Optional[str] = None
+):
+    # Get or create user ID if not provided
+    if not user_id:
+        user_id = get_or_create_user_id(request, response)
+    
+    # Update prompts
+    user_prompts[user_id] = {
+        "system_template": prompt_template.system_template,
+        "user_template": prompt_template.user_template
+    }
+    
+    return {
+        "status": "success",
+        "user_id": user_id,
+        "message": "Prompts updated successfully"
+    }
+
+# Reset user prompts to default
+@app.post("/prompts/reset")
+async def reset_prompts(
+    request: Request,
+    response: Response,
+    user_id: Optional[str] = None
+):
+    # Get or create user ID if not provided
+    if not user_id:
+        user_id = get_or_create_user_id(request, response)
+    
+    # Reset to defaults
+    user_prompts[user_id] = {
+        "system_template": DEFAULT_SYSTEM_TEMPLATE,
+        "user_template": DEFAULT_USER_TEMPLATE
+    }
+    
+    return {
+        "status": "success",
+        "user_id": user_id,
+        "message": "Prompts reset to default successfully"
+    }
+
+@app.get("/identify")
+async def identify_user(request: Request, response: Response):
+    user_id = get_or_create_user_id(request, response)
+    return {"user_id": user_id}
+
 # Serve the frontend
 @app.get("/")
 async def read_root():
@@ -563,9 +766,22 @@ async def catch_all(path: str):
     return FileResponse("static/index.html")
 
 class RetrievalAugmentedQAPipeline:
-    def __init__(self, llm: ChatOpenAI, vector_db_retriever: VectorDatabase) -> None:
+    def __init__(self, llm: ChatOpenAI, vector_db_retriever: VectorDatabase, 
+                system_template: str = DEFAULT_SYSTEM_TEMPLATE, 
+                user_template: str = DEFAULT_USER_TEMPLATE) -> None:
         self.llm = llm
         self.vector_db_retriever = vector_db_retriever
+        self.system_template = system_template
+        self.user_template = user_template
+        self.system_role_prompt = SystemRolePrompt(system_template)
+        self.user_role_prompt = UserRolePrompt(user_template)
+
+    def update_templates(self, system_template: str, user_template: str):
+        """Update prompt templates"""
+        self.system_template = system_template
+        self.user_template = user_template
+        self.system_role_prompt = SystemRolePrompt(system_template)
+        self.user_role_prompt = UserRolePrompt(user_template)
 
     async def arun_pipeline(self, user_query: str):
         context_list = self.vector_db_retriever.search_by_text(user_query, k=4)
@@ -574,8 +790,8 @@ class RetrievalAugmentedQAPipeline:
         for context in context_list:
             context_prompt += context[0] + "\n"
 
-        formatted_system_prompt = system_role_prompt.create_message()
-        formatted_user_prompt = user_role_prompt.create_message(
+        formatted_system_prompt = self.system_role_prompt.create_message()
+        formatted_user_prompt = self.user_role_prompt.create_message(
             question=user_query, context=context_prompt
         )
 

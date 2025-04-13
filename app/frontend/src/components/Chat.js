@@ -61,7 +61,7 @@ const parseThinkingAnswer = (text) => {
   };
 };
 
-const Chat = ({ sessionId, docDescription, suggestedQuestions, selectedQuestion, onQuestionSelected }) => {
+const Chat = ({ sessionId, userId, docDescription, suggestedQuestions, selectedQuestion, onQuestionSelected }) => {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -113,7 +113,7 @@ const Chat = ({ sessionId, docDescription, suggestedQuestions, selectedQuestion,
     const userMessage = input;
     setInput('');
     
-    // Add user message to chat - ensure unique ID
+    // Add user message to chat
     const userMessageId = Date.now();
     console.log('Adding user message:', userMessageId, userMessage);
     
@@ -179,8 +179,18 @@ const Chat = ({ sessionId, docDescription, suggestedQuestions, selectedQuestion,
         activeEventSource.close();
       }
       
-      // Create EventSource for streaming connection
-      const eventSource = new EventSource(`/stream?session_id=${sessionId}&query=${encodeURIComponent(userMessage)}`, { 
+      // Create EventSource for streaming connection - Include user ID if available
+      const queryParams = new URLSearchParams({
+        session_id: sessionId,
+        query: userMessage
+      });
+      
+      // Add user ID if available
+      if (userId) {
+        queryParams.append('user_id', userId);
+      }
+      
+      const eventSource = new EventSource(`/stream?${queryParams.toString()}`, { 
         withCredentials: true 
       });
       
@@ -321,7 +331,8 @@ const Chat = ({ sessionId, docDescription, suggestedQuestions, selectedQuestion,
     try {
       const response = await axios.post('/generate-quiz', {
         session_id: sessionId,
-        num_questions: 5
+        num_questions: 5,
+        user_id: userId // Include user ID if available
       });
       
       setQuizQuestions(response.data.questions);

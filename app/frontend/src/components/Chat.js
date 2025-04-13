@@ -457,7 +457,7 @@ ${results.score >= 80
               </SyntaxHighlighter>
             </div>
           ) : (
-            <code className="px-1 py-0.5 bg-secondary rounded text-xs font-mono" {...props}>
+            <code className="px-1 py-0.5 bg-secondary rounded text-sm font-mono" {...props}>
               {children}
             </code>
           );
@@ -522,7 +522,7 @@ ${results.score >= 80
                         ? '⚠️' 
                         : '🤖'}
                   </span>
-                  <div className={`text-sm ${message.sender === 'ai' ? 'markdown-content' : ''} overflow-hidden`}>
+                  <div className={`${message.sender === 'ai' ? 'markdown-content' : 'text-base'} overflow-hidden`}>
                     {message.sender === 'user' ? (
                       message.text
                     ) : message.isStreaming ? (
@@ -611,7 +611,7 @@ ${results.score >= 80
                 <div className="flex flex-col items-start gap-2 max-w-[80%] rounded-lg px-4 py-3 bg-primary/10 text-foreground shadow-sm border border-primary/20">
                   <div className="flex items-start gap-2">
                     <span className="mt-1 text-lg flex-shrink-0">🧠</span>
-                    <div className="text-sm">
+                    <div className="text-base">
                       <p className="mb-3">
                         I notice you've asked several questions about this document. Would you like to test your knowledge with a quick quiz?
                       </p>
@@ -639,18 +639,7 @@ ${results.score >= 80
             )}
           </div>
         )}
-        {isLoading && (
-          <div className="mb-4 flex justify-start w-full">
-            <div className="flex items-start gap-2 max-w-[80%] rounded-lg px-4 py-3 bg-secondary text-secondary-foreground shadow-sm">
-              <span className="mt-1 text-lg flex-shrink-0">🤖</span>
-              <div className="flex items-center space-x-2">
-                <div className="h-2 w-2 animate-bounce rounded-full bg-primary"></div>
-                <div className="h-2 w-2 animate-bounce rounded-full bg-primary" style={{ animationDelay: '0.2s' }}></div>
-                <div className="h-2 w-2 animate-bounce rounded-full bg-primary" style={{ animationDelay: '0.4s' }}></div>
-              </div>
-            </div>
-          </div>
-        )}
+        {/* Loading indicator removed since streaming response handles this */}
         {quizLoading && (
           <div className="mb-4 flex justify-start w-full">
             <div className="flex items-start gap-2 max-w-[80%] rounded-lg px-4 py-3 bg-secondary text-secondary-foreground shadow-sm">
@@ -661,7 +650,7 @@ ${results.score >= 80
                   <div className="h-2 w-2 animate-bounce rounded-full bg-primary" style={{ animationDelay: '0.2s' }}></div>
                   <div className="h-2 w-2 animate-bounce rounded-full bg-primary" style={{ animationDelay: '0.4s' }}></div>
                 </div>
-                <span className="text-xs">Generating quiz questions...</span>
+                <span className="text-sm">Generating quiz questions...</span>
               </div>
             </div>
           </div>

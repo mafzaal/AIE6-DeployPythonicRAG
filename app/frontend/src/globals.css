@@ -306,4 +306,13 @@ button, a {
   color: hsl(var(--primary));
   transform: scale(1.1);
   z-index: 1;
+}
+
+/* Add a darker header background for dark mode */
+.dark .markdown-content h1,
+.dark .markdown-content h2,
+.dark .markdown-content h3,
+.dark .markdown-content h4 {
+  background-color: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
 } 

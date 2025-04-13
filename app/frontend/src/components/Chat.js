@@ -490,7 +490,7 @@ ${results.score >= 80
             <div className="mb-4 rounded-full bg-primary/10 p-6 transition-all duration-300">
               <span role="img" aria-label="chat" className="text-4xl">💬</span>
             </div>
-            <h3 className="mb-2 text-xl font-semibold">Welcome to the RAG Chat!</h3>
+            <h3 className="mb-2 text-xl font-semibold">Welcome to Quick Understand!</h3>
             <p className="text-sm text-muted-foreground max-w-md">
               Ask questions about your document or click one of the suggested questions above.
               I'm here to help you understand the content! ✨

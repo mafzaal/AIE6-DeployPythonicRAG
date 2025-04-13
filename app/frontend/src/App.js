@@ -77,11 +77,11 @@ function App() {
   return (
     <ThemeProvider defaultTheme="light">
       <div className="min-h-screen bg-background text-foreground transition-colors duration-300 flex flex-col">
-        <header className="bg-primary text-primary-foreground py-4 px-6 shadow-md w-full">
+        <header className="bg-primary text-primary-foreground py-4 px-6 shadow-md w-full dark:bg-gray-900">
           <div className="container mx-auto flex items-center justify-between">
             <div className="flex items-center gap-2">
               <span role="img" aria-label="brain" className="text-2xl">🧠</span>
-              <h1 className="text-2xl font-bold">RAG Chat</h1>
+              <h1 className="text-2xl font-bold">Quick Understand</h1>
             </div>
             <div className="flex items-center gap-4">
               {!showUploadForm && uploadedFiles.length > 0 && (

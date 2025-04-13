@@ -7,7 +7,7 @@ from typing import List
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
 from aimakerspace.text_utils import CharacterTextSplitter, TextFileLoader, PDFLoader
@@ -216,6 +216,61 @@ async def query(request: QueryRequest):
         response_text += chunk
     
     return {"response": response_text, "session_id": session_id}
+
+@app.post("/stream")
+async def stream_query(request: QueryRequest):
+    session_id = request.session_id
+    
+    # Check if session exists
+    if session_id not in user_sessions:
+        raise HTTPException(status_code=404, detail="Session not found. Please upload a document first.")
+    
+    # Get the retrieval pipeline from the session
+    retrieval_pipeline = user_sessions[session_id]
+    
+    # Run the query
+    result = await retrieval_pipeline.arun_pipeline(request.query)
+    
+    async def generate():
+        async for chunk in result["response"]:
+            yield f"data: {json.dumps({'chunk': chunk, 'session_id': session_id})}\n\n"
+    
+    return StreamingResponse(
+        generate(), 
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        }
+    )
+
+@app.get("/stream")
+async def stream_query_get(session_id: str, query: str):
+    # Check if session exists
+    if session_id not in user_sessions:
+        raise HTTPException(status_code=404, detail="Session not found. Please upload a document first.")
+    
+    # Get the retrieval pipeline from the session
+    retrieval_pipeline = user_sessions[session_id]
+    
+    # Run the query
+    result = await retrieval_pipeline.arun_pipeline(query)
+    
+    async def generate():
+        async for chunk in result["response"]:
+            yield f"data: {json.dumps({'chunk': chunk, 'session_id': session_id})}\n\n"
+        
+        # Send an event to signal completion
+        yield f"event: complete\ndata: {json.dumps({'session_id': session_id})}\n\n"
+    
+    return StreamingResponse(
+        generate(), 
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        }
+    )
 
 @app.post("/document-summary", response_model=DocumentSummaryResponse)
 async def get_document_summary(request: DocumentSummaryRequest):

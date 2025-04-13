@@ -11,16 +11,19 @@ import Quiz from './Quiz';
 
 // Helper function to parse thinking and answer sections
 const parseThinkingAnswer = (text) => {
-  const thinkingMatch = /<think>([\s\S]*?)<\/think>/i.exec(text);
+  // Try to match the think tag, even if it's incomplete
+  const thinkingRegex = /<think>([\s\S]*?)(?:<\/think>|$)/i;
+  const thinkingMatch = thinkingRegex.exec(text);
   
-  // If thinking section is found
+  // If thinking section is found (even partially)
   if (thinkingMatch) {
-    // Try to find answer section after the thinking section
+    // Get the text after the thinking section, including if </think> is not yet complete
     const thinkingEndIndex = thinkingMatch.index + thinkingMatch[0].length;
     const restOfText = text.substring(thinkingEndIndex).trim();
     
-    // Check for explicit answer tag
-    const answerMatch = /<answer>([\s\S]*?)(<\/answer>|$)/i.exec(restOfText);
+    // Check for explicit answer tag, even if incomplete
+    const answerRegex = /<answer>([\s\S]*?)(?:<\/answer>|$)/i;
+    const answerMatch = answerRegex.exec(restOfText);
     
     if (answerMatch) {
       // Both thinking and answer tags found
@@ -39,8 +42,9 @@ const parseThinkingAnswer = (text) => {
     }
   }
   
-  // Check if there's just an answer tag without thinking
-  const answerMatch = /<answer>([\s\S]*?)(<\/answer>|$)/i.exec(text);
+  // Check if there's just an answer tag, even if incomplete
+  const answerRegex = /<answer>([\s\S]*?)(?:<\/answer>|$)/i;
+  const answerMatch = answerRegex.exec(text);
   if (answerMatch) {
     return {
       thinking: "",
@@ -68,6 +72,7 @@ const Chat = ({ sessionId, docDescription, suggestedQuestions, selectedQuestion,
   const [quizLoading, setQuizLoading] = useState(false);
   const [quizResults, setQuizResults] = useState(null);
   const [expandedThinking, setExpandedThinking] = useState({});
+  const [activeEventSource, setActiveEventSource] = useState(null);
   
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
@@ -108,10 +113,13 @@ const Chat = ({ sessionId, docDescription, suggestedQuestions, selectedQuestion,
     const userMessage = input;
     setInput('');
     
-    // Add user message to chat
+    // Add user message to chat - ensure unique ID
+    const userMessageId = Date.now();
+    console.log('Adding user message:', userMessageId, userMessage);
+    
     setMessages(prevMessages => [
       ...prevMessages, 
-      { text: userMessage, sender: 'user', id: Date.now() }
+      { text: userMessage, sender: 'user', id: userMessageId }
     ]);
     
     // Check if user is explicitly asking for a quiz
@@ -129,7 +137,7 @@ const Chat = ({ sessionId, docDescription, suggestedQuestions, selectedQuestion,
     
     if (isQuizRequest && !showQuiz && !quizLoading) {
       // Add user message acknowledging quiz request
-      const messageId = Date.now();
+      const messageId = Date.now() + 1;
       setMessages(prevMessages => [
         ...prevMessages, 
         { 
@@ -148,36 +156,146 @@ const Chat = ({ sessionId, docDescription, suggestedQuestions, selectedQuestion,
     setIsLoading(true);
     
     try {
-      const response = await axios.post('/query', {
-        session_id: sessionId,
-        query: userMessage
-      });
+      // Create placeholder message for streaming content with a guaranteed unique ID
+      const messageId = userMessageId + 100;
+      console.log('Creating AI message placeholder:', messageId);
       
-      // Parse the response for thinking and answer sections
-      const messageId = Date.now();
-      const parsedResponse = parseThinkingAnswer(response.data.response);
-      
-      // Add AI response to chat
       setMessages(prevMessages => [
         ...prevMessages, 
         { 
-          text: response.data.response, 
+          text: "", 
           sender: 'ai',
           id: messageId,
-          thinking: parsedResponse.thinking,
-          answer: parsedResponse.answer,
-          hasFormatting: parsedResponse.hasFormatting
+          thinking: "",
+          answer: "",
+          hasFormatting: false,
+          isStreaming: true
         }
       ]);
       
-      // Increment question count after successful response
-      const newCount = userQuestionCount + 1;
-      setUserQuestionCount(newCount);
-      
-      // Check if we should show quiz prompt (after 3+ questions and not already shown)
-      if (newCount >= 3 && !showQuizPrompt && !showQuiz && !quizResults) {
-        setShowQuizPrompt(true);
+      // Close any existing EventSource before creating a new one
+      if (activeEventSource) {
+        console.log('Closing existing EventSource');
+        activeEventSource.close();
       }
+      
+      // Create EventSource for streaming connection
+      const eventSource = new EventSource(`/stream?session_id=${sessionId}&query=${encodeURIComponent(userMessage)}`, { 
+        withCredentials: true 
+      });
+      
+      // Store the event source in state
+      setActiveEventSource(eventSource);
+      
+      let streamedText = "";
+      
+      eventSource.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        streamedText += data.chunk;
+        
+        // Parse current content
+        const parsedResponse = parseThinkingAnswer(streamedText);
+        
+        console.log('Updating message with chunk, ID:', messageId);
+        
+        // Update message with streamed content
+        setMessages(prevMessages => prevMessages.map(msg => 
+          msg.id === messageId
+            ? { 
+                ...msg, 
+                text: streamedText,
+                thinking: parsedResponse.thinking,
+                answer: parsedResponse.answer,
+                hasFormatting: parsedResponse.hasFormatting,
+                isStreaming: true,
+                sender: 'ai'
+              }
+            : msg
+        ));
+      };
+      
+      // Listen for stream completion event
+      eventSource.addEventListener('complete', (event) => {
+        console.log('Stream complete, closing EventSource');
+        eventSource.close();
+        setActiveEventSource(null);
+        
+        const parsedResponse = parseThinkingAnswer(streamedText);
+        
+        // Update message with final streamed content
+        setMessages(prevMessages => 
+          prevMessages.map(msg => 
+            msg.id === messageId
+              ? { 
+                  ...msg, 
+                  text: streamedText,
+                  thinking: parsedResponse.thinking,
+                  answer: parsedResponse.answer,
+                  hasFormatting: parsedResponse.hasFormatting,
+                  isStreaming: false,
+                  sender: 'ai'
+                }
+              : msg
+          )
+        );
+        
+        // Increment question count after successful response
+        const newCount = userQuestionCount + 1;
+        setUserQuestionCount(newCount);
+        
+        // Check if we should show quiz prompt (after 3+ questions and not already shown)
+        if (newCount >= 3 && !showQuizPrompt && !showQuiz && !quizResults) {
+          setShowQuizPrompt(true);
+        }
+        
+        setIsLoading(false);
+      });
+      
+      eventSource.onerror = (error) => {
+        console.error('EventSource error:', error);
+        eventSource.close();
+        setActiveEventSource(null);
+        
+        // If we got a partial response, keep it
+        if (streamedText) {
+          const parsedResponse = parseThinkingAnswer(streamedText);
+          
+          // Update message with final streamed content
+          setMessages(prevMessages => 
+            prevMessages.map(msg => 
+              msg.id === messageId
+                ? { 
+                    ...msg, 
+                    text: streamedText,
+                    thinking: parsedResponse.thinking,
+                    answer: parsedResponse.answer,
+                    hasFormatting: parsedResponse.hasFormatting,
+                    isStreaming: false,
+                    sender: 'ai'
+                  }
+                : msg
+            )
+          );
+        } else {
+          // If we got no response, show error
+          setMessages(prevMessages => [
+            ...prevMessages.filter(msg => msg.id !== messageId), // Remove placeholder
+            { 
+              text: 'Sorry, there was an error processing your request.', 
+              sender: 'ai', 
+              isError: true,
+              id: Date.now() 
+            }
+          ]);
+        }
+        
+        setIsLoading(false);
+      };
+      
+      eventSource.onopen = () => {
+        console.log('EventSource connected');
+      };
+      
     } catch (error) {
       console.error('Error getting response:', error);
       
@@ -191,7 +309,7 @@ const Chat = ({ sessionId, docDescription, suggestedQuestions, selectedQuestion,
           id: Date.now() 
         }
       ]);
-    } finally {
+      
       setIsLoading(false);
     }
   };
@@ -407,7 +525,48 @@ ${results.score >= 80
                   <div className={`text-sm ${message.sender === 'ai' ? 'markdown-content' : ''} overflow-hidden`}>
                     {message.sender === 'user' ? (
                       message.text
+                    ) : message.isStreaming ? (
+                      // Unified streaming display
+                      <div>
+                        {/* Show streaming content differently depending on whether formatting is detected */}
+                        {message.hasFormatting ? (
+                          <>
+                            {message.thinking && (
+                              <div className="mb-2">
+                                <div 
+                                  className="flex items-center gap-1 mb-1 cursor-pointer text-xs opacity-80"
+                                  onClick={() => toggleThinking(message.id)}
+                                >
+                                  <span className="text-xs">
+                                    {expandedThinking[message.id] ? '▼' : '►'}
+                                  </span>
+                                  <span className="font-medium">
+                                    {expandedThinking[message.id] ? 'Hide Thinking Process' : 'Show Thinking Process'}
+                                  </span>
+                                </div>
+                                
+                                {expandedThinking[message.id] && (
+                                  <div className="p-2 bg-muted/40 rounded-md border border-primary/10 text-xs leading-relaxed mb-2">
+                                    <MarkdownContent content={message.thinking} />
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                            
+                            <div>
+                              <MarkdownContent content={message.answer} />
+                              <span className="inline-block w-1.5 h-4 ml-1 bg-primary animate-pulse rounded-sm" />
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <MarkdownContent content={message.text} />
+                            <span className="inline-block w-1.5 h-4 ml-1 bg-primary animate-pulse rounded-sm" />
+                          </>
+                        )}
+                      </div>
                     ) : message.hasFormatting ? (
+                      // Non-streaming formatted display
                       <div>
                         {message.thinking && (
                           <div className="mb-2">
@@ -436,7 +595,10 @@ ${results.score >= 80
                         </div>
                       </div>
                     ) : (
-                      <MarkdownContent content={message.text} />
+                      // Non-streaming, non-formatted display
+                      <div>
+                        <MarkdownContent content={message.text} />
+                      </div>
                     )}
                   </div>
                 </div>

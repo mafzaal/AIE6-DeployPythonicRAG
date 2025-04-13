@@ -18,7 +18,15 @@ from aimakerspace.openai_utils.prompts import (
 from aimakerspace.vectordatabase import VectorDatabase
 from aimakerspace.openai_utils.chatmodel import ChatOpenAI
 
-app = FastAPI()
+# API Version information
+API_VERSION = "0.2.0"
+BUILD_DATE = "2024-06-14"  # Update this when making significant changes
+
+app = FastAPI(
+    title="Quick Understand API",
+    description="RAG-based question answering API for document understanding",
+    version=API_VERSION
+)
 
 # Add CORS middleware
 app.add_middleware(
@@ -539,6 +547,14 @@ def generate_fallback_questions(num_questions: int) -> List[QuizQuestion]:
 @app.get("/")
 async def read_root():
     return FileResponse("static/index.html")
+
+@app.get("/version")
+async def get_version():
+    return {
+        "api_version": API_VERSION,
+        "build_date": BUILD_DATE,
+        "status": "operational"
+    }
 
 @app.get("/{path:path}")
 async def catch_all(path: str):

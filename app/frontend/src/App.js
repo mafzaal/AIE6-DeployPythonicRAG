@@ -7,6 +7,7 @@ import DocumentSummary from './components/DocumentSummary';
 import { ThemeProvider } from './components/ui/theme-provider';
 import { ThemeToggle } from './components/ui/theme-toggle';
 import { SettingsDialog } from './components/ui/settings-dialog';
+import { getVersionString, fetchApiVersion } from './utils/version';
 
 function App() {
   const [sessionId, setSessionId] = useState('');
@@ -14,6 +15,7 @@ function App() {
   const [uploadedFiles, setUploadedFiles] = useState([]);
   const [activeFileIndex, setActiveFileIndex] = useState(0);
   const [selectedQuestion, setSelectedQuestion] = useState('');
+  const [apiVersion, setApiVersion] = useState(null);
   
   // App settings with localStorage persistence
   const [settings, setSettings] = useState(() => {
@@ -31,6 +33,16 @@ function App() {
       setSessionId(uuidv4());
     }
   }, [sessionId]);
+
+  // Fetch API version information
+  useEffect(() => {
+    const getApiVersion = async () => {
+      const versionInfo = await fetchApiVersion();
+      setApiVersion(versionInfo);
+    };
+    
+    getApiVersion();
+  }, []);
 
   // Save settings to localStorage when they change
   useEffect(() => {
@@ -166,7 +178,23 @@ function App() {
         </main>
         
         <footer className="w-full py-4 px-6 text-center text-sm text-muted-foreground">
-          <p>Made with <span role="img" aria-label="heart" className="text-red-500">❤️</span> and Shadcn/UI</p>
+          <div className="flex flex-col items-center justify-center">
+            <p>Made with <span role="img" aria-label="heart" className="text-red-500">❤️</span> and Shadcn/UI</p>
+            <div className="text-xs opacity-70 mt-1 flex items-center gap-2 justify-center">
+              <span>UI: {getVersionString()}</span>
+              {apiVersion && (
+                <>
+                  <span className="bg-border/30 w-[1px] h-3 inline-block"></span>
+                  <span>API: v{apiVersion.api_version}</span>
+                  <span className={`w-2 h-2 rounded-full ${
+                    apiVersion.status === 'operational' 
+                      ? 'bg-green-500' 
+                      : 'bg-amber-500'
+                  }`} title={`Status: ${apiVersion.status}`}></span>
+                </>
+              )}
+            </div>
+          </div>
         </footer>
       </div>
     </ThemeProvider>

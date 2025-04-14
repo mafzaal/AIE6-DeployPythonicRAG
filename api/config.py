@@ -1,8 +1,8 @@
 import os
 
 # API Version information
-API_VERSION = "0.2.0"
-BUILD_DATE = "2024-06-14"  # Update this when making significant changes
+API_VERSION = "0.3.0"
+BUILD_DATE = "2025-04-13"  # Update this when making significant changes
 
 # File storage
 STATIC_DIR = "static"

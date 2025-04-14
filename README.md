@@ -442,3 +442,26 @@ OPENAI_API_KEY=your_openai_api_key
 - Semantic search using embeddings
 - Question answering with LLM (OpenAI models)
 - Real-time chat interface
+
+## Vector Database
+
+This application now uses [Qdrant](https://github.com/qdrant/qdrant-client) as its vector database. 
+Qdrant is a high-performance vector similarity search engine that stores both vectors and their metadata.
+
+### Features:
+- Fast vector search with HNSW index
+- Filtering support during search
+- Persisted storage of vectors and metadata
+- Both in-memory and disk-based options
+
+### Configuration:
+The following environment variables can be used to configure Qdrant:
+- `QDRANT_HOST`: Host of the Qdrant server (default: localhost)
+- `QDRANT_PORT`: HTTP port of the Qdrant server (default: 6333)
+- `QDRANT_GRPC_PORT`: gRPC port of the Qdrant server (default: 6334)
+- `QDRANT_PREFER_GRPC`: Whether to prefer gRPC over HTTP (default: true)
+- `QDRANT_COLLECTION`: Base name for collections (default: documents)
+- `QDRANT_IN_MEMORY`: Whether to use in-memory storage (default: true)
+
+When running with Docker, the application automatically connects to the Qdrant service
+defined in the docker-compose.yml file.

@@ -1,6 +1,17 @@
 version: '3.8'
 
 services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    environment:
+      - QDRANT_ALLOW_ORIGIN=*
+    restart: unless-stopped
+
   rag-app:
     build: 
       context: .
@@ -12,6 +23,17 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - PORT=7860
       - HOST=0.0.0.0
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      - QDRANT_GRPC_PORT=6334
+      - QDRANT_PREFER_GRPC=true
+      - QDRANT_COLLECTION=documents
+      - QDRANT_IN_MEMORY=false
     env_file:
       - .env
-    restart: unless-stopped 
+    depends_on:
+      - qdrant
+    restart: unless-stopped
+
+volumes:
+  qdrant_data: 

@@ -48,6 +48,21 @@ class EmbeddingModel:
 
         return embedding.data[0].embedding
 
+    def get_embedding_dimension(self) -> int:
+        """Get the dimension of the embedding model
+        
+        Returns:
+            int: Dimension of the embedding model
+        """
+        # Dimensions for OpenAI models
+        dimensions = {
+            "text-embedding-3-small": 1536,
+            "text-embedding-3-large": 3072,
+            "text-embedding-ada-002": 1536,
+        }
+        
+        return dimensions.get(self.embeddings_model_name, 1536)  # Default to 1536
+
 
 if __name__ == "__main__":
     embedding_model = EmbeddingModel()

@@ -1,10 +1,10 @@
 from typing import List, Dict, Any
 from aimakerspace.openai_utils.prompts import SystemRolePrompt, UserRolePrompt
 from aimakerspace.openai_utils.chatmodel import ChatOpenAI
-from aimakerspace.vectordatabase import VectorDatabase
+from aimakerspace.qdrant_vectordb import QdrantVectorDatabase
 
 class RetrievalAugmentedQAPipeline:
-    def __init__(self, llm: ChatOpenAI, vector_db_retriever: VectorDatabase, 
+    def __init__(self, llm: ChatOpenAI, vector_db_retriever: QdrantVectorDatabase, 
                 system_template: str, 
                 user_template: str) -> None:
         self.llm = llm

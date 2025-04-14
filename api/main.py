@@ -16,12 +16,21 @@ from aimakerspace.openai_utils.prompts import (
     UserRolePrompt,
     SystemRolePrompt
 )
-from aimakerspace.vectordatabase import VectorDatabase
+from aimakerspace.qdrant_vectordb import QdrantVectorDatabase
 from aimakerspace.openai_utils.chatmodel import ChatOpenAI
 
 # API Version information
 API_VERSION = "0.2.0"
 BUILD_DATE = "2024-06-14"  # Update this when making significant changes
+
+# Qdrant settings from environment variables
+import os
+QDRANT_HOST = os.getenv("QDRANT_HOST", "localhost")
+QDRANT_PORT = int(os.getenv("QDRANT_PORT", 6333))
+QDRANT_GRPC_PORT = int(os.getenv("QDRANT_GRPC_PORT", 6334))
+QDRANT_PREFER_GRPC = os.getenv("QDRANT_PREFER_GRPC", "True").lower() == "true"
+QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "documents")
+QDRANT_IN_MEMORY = os.getenv("QDRANT_IN_MEMORY", "True").lower() == "true"
 
 app = FastAPI(
     title="Quick Understand API",
@@ -199,7 +208,14 @@ async def upload_file(
             texts = text_splitter.split_texts(documents)
             
             # Create vector database
-            vector_db = VectorDatabase()
+            vector_db = QdrantVectorDatabase(
+                collection_name=f"{QDRANT_COLLECTION}_{session_id}",
+                host=QDRANT_HOST,
+                port=QDRANT_PORT,
+                grpc_port=QDRANT_GRPC_PORT,
+                prefer_grpc=QDRANT_PREFER_GRPC,
+                in_memory=QDRANT_IN_MEMORY
+            )
             vector_db = await vector_db.abuild_from_list(texts)
             
             # Create chat model
@@ -766,7 +782,7 @@ async def catch_all(path: str):
     return FileResponse("static/index.html")
 
 class RetrievalAugmentedQAPipeline:
-    def __init__(self, llm: ChatOpenAI, vector_db_retriever: VectorDatabase, 
+    def __init__(self, llm: ChatOpenAI, vector_db_retriever: QdrantVectorDatabase, 
                 system_template: str = DEFAULT_SYSTEM_TEMPLATE, 
                 user_template: str = DEFAULT_USER_TEMPLATE) -> None:
         self.llm = llm

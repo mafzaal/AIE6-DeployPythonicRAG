@@ -8,7 +8,7 @@ from aimakerspace.openai_utils.prompts import (
     AssistantRolePrompt,
 )
 from aimakerspace.openai_utils.embedding import EmbeddingModel
-from aimakerspace.vectordatabase import VectorDatabase
+from aimakerspace.qdrant_vectordb import QdrantVectorDatabase
 from aimakerspace.openai_utils.chatmodel import ChatOpenAI
 import chainlit as cl
 
@@ -26,7 +26,7 @@ Question:
 user_role_prompt = UserRolePrompt(user_prompt_template)
 
 class RetrievalAugmentedQAPipeline:
-    def __init__(self, llm: ChatOpenAI(), vector_db_retriever: VectorDatabase) -> None:
+    def __init__(self, llm: ChatOpenAI(), vector_db_retriever: QdrantVectorDatabase) -> None:
         self.llm = llm
         self.vector_db_retriever = vector_db_retriever
 
@@ -108,7 +108,7 @@ async def on_chat_start():
     print(f"Processing {len(texts)} text chunks")
 
     # Create a dict vector store
-    vector_db = VectorDatabase()
+    vector_db = QdrantVectorDatabase(collection_name="chainlit_documents")
     vector_db = await vector_db.abuild_from_list(texts)
     
     chat_openai = ChatOpenAI()

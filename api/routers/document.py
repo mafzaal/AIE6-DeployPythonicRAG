@@ -5,8 +5,10 @@ from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Request, R
 from typing import Dict, List
 
 from aimakerspace.text_utils import CharacterTextSplitter, TextFileLoader, PDFLoader
+from aimakerspace.openai_utils.embedding import EmbeddingModel
 from aimakerspace.openai_utils.chatmodel import ChatOpenAI
-from aimakerspace.vectordatabase import VectorDatabase
+from aimakerspace.qdrant_vectordb import QdrantVectorDatabase
+from api.config import QDRANT_HOST, QDRANT_PORT, QDRANT_GRPC_PORT, QDRANT_PREFER_GRPC, QDRANT_COLLECTION, QDRANT_IN_MEMORY
 
 from api.models.pydantic_models import DocumentSummaryRequest, DocumentSummaryResponse
 from api.services.pipeline import RetrievalAugmentedQAPipeline
@@ -66,7 +68,14 @@ async def upload_file(
             texts = text_splitter.split_texts(documents)
             
             # Create vector database
-            vector_db = VectorDatabase()
+            vector_db = QdrantVectorDatabase(
+                collection_name=f"{QDRANT_COLLECTION}_{session_id}",
+                host=QDRANT_HOST,
+                port=QDRANT_PORT,
+                grpc_port=QDRANT_GRPC_PORT,
+                prefer_grpc=QDRANT_PREFER_GRPC,
+                in_memory=QDRANT_IN_MEMORY
+            )
             vector_db = await vector_db.abuild_from_list(texts)
             
             # Create chat model

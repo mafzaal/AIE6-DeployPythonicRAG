@@ -29,7 +29,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY aimakerspace/ /app/aimakerspace/
 
 # Copy the API files
-COPY api/ /app/
+COPY api/ /app/api/
+
+# Create logs directory
+RUN mkdir -p /app/logs
 
 # Create static directory and fix structure (move nested static content up)
 RUN mkdir -p /app/static/css /app/static/js
@@ -49,5 +52,5 @@ ENV HOST=0.0.0.0
 # Expose the Hugging Face required port
 EXPOSE 7860
 
-# Start the application
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "7860"]
+# Start the application with the correct path
+CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "7860"]

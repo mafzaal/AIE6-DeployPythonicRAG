@@ -5,7 +5,7 @@ from .prompts import user_prompts, DEFAULT_SYSTEM_TEMPLATE, DEFAULT_USER_TEMPLAT
 
 def get_or_create_user_id(request: Request, response: Response) -> str:
     """
-    Get or create a user ID
+    Get or create a user ID without using cookies to support HuggingFace deployments
     
     Args:
         request: FastAPI request object
@@ -14,27 +14,21 @@ def get_or_create_user_id(request: Request, response: Response) -> str:
     Returns:
         User ID (either existing or newly created)
     """
-    # Try to get user ID from cookie
-    user_id = request.cookies.get("user_id")
+    # Try to get user ID from header first
+    user_id = request.headers.get("X-User-ID")
+    
+    # Then try to get from query parameter
+    if not user_id:
+        user_id = request.query_params.get("user_id")
     
     # If no user ID exists, create a new one
     if not user_id:
         user_id = str(uuid.uuid4())
-        # Set cookie with long expiration (1 year)
-        expires = int(time.time()) + 31536000  # 1 year in seconds
-        response.set_cookie(
-            key="user_id",
-            value=user_id,
-            expires=expires,
-            path="/",
-            httponly=True,
-            samesite="lax"
-        )
-        
         # Initialize with default prompts
-        user_prompts[user_id] = {
-            "system_template": DEFAULT_SYSTEM_TEMPLATE,
-            "user_template": DEFAULT_USER_TEMPLATE
-        }
+        if user_id not in user_prompts:
+            user_prompts[user_id] = {
+                "system_template": DEFAULT_SYSTEM_TEMPLATE,
+                "user_template": DEFAULT_USER_TEMPLATE
+            }
     
     return user_id 

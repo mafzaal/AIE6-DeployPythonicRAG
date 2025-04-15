@@ -21,7 +21,17 @@ class RetrievalAugmentedQAPipeline:
         self.system_role_prompt = SystemRolePrompt(system_template)
         self.user_role_prompt = UserRolePrompt(user_template)
 
-    async def arun_pipeline(self, user_query: str):
+    async def arun_pipeline(self, user_query: str, user_id: str = None):
+        """
+        Run the RAG pipeline to answer a user query
+        
+        Args:
+            user_query: The user's question
+            user_id: Optional user ID for tracking in HuggingFace deployment
+            
+        Returns:
+            Dictionary containing response generator and context
+        """
         context_list = self.vector_db_retriever.search_by_text(user_query, k=4)
 
         context_prompt = ""
@@ -37,4 +47,10 @@ class RetrievalAugmentedQAPipeline:
             async for chunk in self.llm.astream([formatted_system_prompt, formatted_user_prompt]):
                 yield chunk
 
-        return {"response": generate_response(), "context": context_list} 
+        result = {"response": generate_response(), "context": context_list}
+        
+        # Include user_id in result if provided (for HuggingFace deployment)
+        if user_id:
+            result["user_id"] = user_id
+            
+        return result 

@@ -16,6 +16,7 @@ This RAG (Retrieval-Augmented Generation) Chat application allows users to:
 - **Interactive Chat:** Ask questions about the uploaded documents
 - **Knowledge Quiz:** Test your understanding with automatically generated quizzes
 - **Thinking/Answer Format:** See the AI's reasoning process with expandable "thinking" sections
+- **Cookie-less Session Management:** Uses localStorage and HTTP headers for user sessions instead of cookies for better HuggingFace Spaces compatibility
 
 ## Deployment Instructions
 
@@ -62,6 +63,16 @@ You can customize your deployment by modifying:
 - `Dockerfile` - Container configuration
 - `api/main.py` - Backend API endpoints
 - `app/frontend/src/` - Frontend React components
+
+## Notes on Session Management
+
+This application implements cookie-less session management specifically for Hugging Face Spaces:
+
+- User IDs are stored in the browser's localStorage instead of cookies
+- User identification is transmitted via HTTP headers and URL parameters
+- The application maintains backward compatibility with cookie-based implementations
+
+This approach ensures the application works smoothly in HuggingFace Spaces which has limitations with cookie handling.
 
 ## Troubleshooting
 

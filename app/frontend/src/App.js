@@ -8,9 +8,11 @@ import { ThemeProvider } from './components/ui/theme-provider';
 import { ThemeToggle } from './components/ui/theme-toggle';
 import { SettingsDialog } from './components/ui/settings-dialog';
 import { getVersionString, fetchApiVersion } from './utils/version';
-import { identifyUser } from './utils/user';
+import { identifyUser, setupUserIdInterceptor } from './utils/user';
 import PromptEditor from './components/ui/PromptEditor';
-import CookieConsent from './components/ui/CookieConsent';
+
+// Setup the axios interceptor to include user ID in all requests
+setupUserIdInterceptor();
 
 function App() {
   const [sessionId, setSessionId] = useState('');
@@ -219,8 +221,6 @@ function App() {
             </div>
           </div>
         </footer>
-        
-        <CookieConsent />
       </div>
     </ThemeProvider>
   );

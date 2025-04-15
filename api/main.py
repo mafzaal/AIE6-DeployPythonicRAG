@@ -139,28 +139,22 @@ class GenerateQuizResponse(BaseModel):
 
 # Helper function to get or create a user ID
 def get_or_create_user_id(request: Request, response: Response) -> str:
-    # Try to get user ID from cookie
-    user_id = request.cookies.get("user_id")
+    # Try to get user ID from header first
+    user_id = request.headers.get("X-User-ID")
+    
+    # Then try to get from query parameter
+    if not user_id:
+        user_id = request.query_params.get("user_id")
     
     # If no user ID exists, create a new one
     if not user_id:
         user_id = str(uuid.uuid4())
-        # Set cookie with long expiration (1 year)
-        expires = int(time.time()) + 31536000  # 1 year in seconds
-        response.set_cookie(
-            key="user_id",
-            value=user_id,
-            expires=expires,
-            path="/",
-            httponly=True,
-            samesite="lax"
-        )
-        
         # Initialize with default prompts
-        user_prompts[user_id] = {
-            "system_template": DEFAULT_SYSTEM_TEMPLATE,
-            "user_template": DEFAULT_USER_TEMPLATE
-        }
+        if user_id not in user_prompts:
+            user_prompts[user_id] = {
+                "system_template": DEFAULT_SYSTEM_TEMPLATE,
+                "user_template": DEFAULT_USER_TEMPLATE
+            }
     
     return user_id
 
@@ -318,7 +312,7 @@ async def query(request: QueryRequest):
         )
     
     # Run the query
-    result = await retrieval_pipeline.arun_pipeline(request.query)
+    result = await retrieval_pipeline.arun_pipeline(request.query, user_id)
     
     # Process the result and return the response
     response_text = ""
@@ -348,11 +342,11 @@ async def stream_query(request: QueryRequest):
         )
     
     # Run the query
-    result = await retrieval_pipeline.arun_pipeline(request.query)
+    result = await retrieval_pipeline.arun_pipeline(request.query, user_id)
     
     async def generate():
         async for chunk in result["response"]:
-            yield f"data: {json.dumps({'chunk': chunk, 'session_id': session_id})}\n\n"
+            yield f"data: {json.dumps({'chunk': chunk, 'session_id': session_id, 'user_id': user_id})}\n\n"
     
     return StreamingResponse(
         generate(), 
@@ -391,14 +385,14 @@ async def stream_query_get(
         )
     
     # Run the query
-    result = await retrieval_pipeline.arun_pipeline(query)
+    result = await retrieval_pipeline.arun_pipeline(query, user_id)
     
     async def generate():
         async for chunk in result["response"]:
-            yield f"data: {json.dumps({'chunk': chunk, 'session_id': session_id})}\n\n"
+            yield f"data: {json.dumps({'chunk': chunk, 'session_id': session_id, 'user_id': user_id})}\n\n"
         
         # Send an event to signal completion
-        yield f"event: complete\ndata: {json.dumps({'session_id': session_id})}\n\n"
+        yield f"event: complete\ndata: {json.dumps({'session_id': session_id, 'user_id': user_id})}\n\n"
     
     return StreamingResponse(
         generate(), 
@@ -799,7 +793,7 @@ class RetrievalAugmentedQAPipeline:
         self.system_role_prompt = SystemRolePrompt(system_template)
         self.user_role_prompt = UserRolePrompt(user_template)
 
-    async def arun_pipeline(self, user_query: str):
+    async def arun_pipeline(self, user_query: str, user_id: str):
         context_list = self.vector_db_retriever.search_by_text(user_query, k=4)
 
         context_prompt = ""

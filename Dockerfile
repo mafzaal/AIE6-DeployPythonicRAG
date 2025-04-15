@@ -21,6 +21,9 @@ FROM python:3.13
 
 WORKDIR /app
 
+# Create a non-root user to run the application
+RUN groupadd -r appuser && useradd -r -g appuser -m -d /home/appuser -s /sbin/nologin appuser
+
 # Copy the Python codebase
 COPY api/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
@@ -44,6 +47,11 @@ COPY --from=frontend-builder /app/frontend/build/asset-manifest.json /app/static
 # Debugging: list static directory contents
 RUN ls -la /app/static/ /app/static/css/ /app/static/js/
 
+# Set ownership and permissions
+RUN chown -R appuser:appuser /app/logs && \
+    chmod -R 755 /app && \
+    chmod -R 777 /app/logs
+
 # Set environment variables
 ENV PYTHONPATH=/app
 ENV PORT=7860
@@ -51,6 +59,9 @@ ENV HOST=0.0.0.0
 
 # Expose the Hugging Face required port
 EXPOSE 7860
+
+# Switch to non-root user
+USER appuser
 
 # Start the application with the correct path
 CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "7860"]

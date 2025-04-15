@@ -66,17 +66,69 @@ class QdrantVectorDatabase:
         
     def _ensure_collection(self, vector_size: int):
         """Ensure collection exists"""
-        collections = self.client.get_collections().collections
-        collection_names = [c.name for c in collections]
-        
-        if self.collection_name not in collection_names:
-            self.client.create_collection(
-                collection_name=self.collection_name,
-                vectors_config=VectorParams(
-                    size=vector_size,
-                    distance=Distance.COSINE
+        try:
+            collections = self.client.get_collections().collections
+            collection_names = [c.name for c in collections]
+            
+            if self.collection_name not in collection_names:
+                print(f"Creating collection {self.collection_name}")
+                self.client.create_collection(
+                    collection_name=self.collection_name,
+                    vectors_config=VectorParams(
+                        size=vector_size,
+                        distance=Distance.COSINE
+                    )
                 )
-            )
+                print(f"Collection {self.collection_name} created successfully")
+            else:
+                print(f"Collection {self.collection_name} already exists")
+        except Exception as e:
+            print(f"Error ensuring collection exists: {e}")
+            # Create the collection anyway as a fallback
+            try:
+                self.client.create_collection(
+                    collection_name=self.collection_name,
+                    vectors_config=VectorParams(
+                        size=vector_size,
+                        distance=Distance.COSINE
+                    )
+                )
+                print(f"Created collection {self.collection_name} after error")
+            except Exception as e2:
+                print(f"Failed to create collection after error: {e2}")
+    
+    async def _async_ensure_collection(self, vector_size: int):
+        """Ensure collection exists asynchronously"""
+        try:
+            collections = await self.async_client.get_collections()
+            collection_names = [c.name for c in collections.collections]
+            
+            if self.collection_name not in collection_names:
+                print(f"Creating collection {self.collection_name} asynchronously")
+                await self.async_client.create_collection(
+                    collection_name=self.collection_name,
+                    vectors_config=VectorParams(
+                        size=vector_size,
+                        distance=Distance.COSINE
+                    )
+                )
+                print(f"Collection {self.collection_name} created successfully")
+            else:
+                print(f"Collection {self.collection_name} already exists")
+        except Exception as e:
+            print(f"Error ensuring collection exists asynchronously: {e}")
+            # Create the collection anyway as a fallback
+            try:
+                await self.async_client.create_collection(
+                    collection_name=self.collection_name,
+                    vectors_config=VectorParams(
+                        size=vector_size,
+                        distance=Distance.COSINE
+                    )
+                )
+                print(f"Created collection {self.collection_name} after error")
+            except Exception as e2:
+                print(f"Failed to create collection after error: {e2}")
     
     def insert(self, key: str, vector: np.array) -> None:
         """Insert a vector into the database"""
@@ -160,6 +212,10 @@ class QdrantVectorDatabase:
     
     async def abuild_from_list(self, list_of_text: List[str]) -> "QdrantVectorDatabase":
         """Build database from a list of texts"""
+        # Ensure collection exists before inserting
+        vector_size = self.embedding_model.get_embedding_dimension()
+        await self._async_ensure_collection(vector_size)
+        
         embeddings = await self.embedding_model.async_get_embeddings(list_of_text)
         
         # Generate unique IDs for each text
@@ -182,12 +238,24 @@ class QdrantVectorDatabase:
         
         # Use batched upsert for efficiency
         batch_size = 100
-        for i in range(0, len(points), batch_size):
-            batch = points[i:i+batch_size]
-            await self.async_client.upsert(
-                collection_name=self.collection_name,
-                points=batch
-            )
+        try:
+            for i in range(0, len(points), batch_size):
+                batch = points[i:i+batch_size]
+                await self.async_client.upsert(
+                    collection_name=self.collection_name,
+                    points=batch
+                )
+            print(f"Successfully inserted {len(points)} points into collection {self.collection_name}")
+        except Exception as e:
+            print(f"Error inserting points: {e}")
+            # Try recreating the collection and inserting again
+            await self._async_ensure_collection(vector_size)
+            for i in range(0, len(points), batch_size):
+                batch = points[i:i+batch_size]
+                await self.async_client.upsert(
+                    collection_name=self.collection_name,
+                    points=batch
+                )
         
         return self
     

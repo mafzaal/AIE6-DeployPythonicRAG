@@ -4,12 +4,17 @@ import shutil
 import json
 import uuid
 import time
+import logging
 from typing import List, Dict, Optional
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Cookie, Response, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
+
+# Import and setup logging
+from api.logging_config import setup_logging
+logger = setup_logging(level=logging.INFO)
 
 from aimakerspace.text_utils import CharacterTextSplitter, TextFileLoader, PDFLoader
 from aimakerspace.openai_utils.prompts import (
@@ -176,32 +181,63 @@ async def upload_file(
     request: Request = None,
     response: Response = None
 ):
+    request_id = str(uuid.uuid4())[:8]
+    logger.info(f"[Request:{request_id}] Upload request received - session_id={session_id}, file={file.filename}")
+    
     if file.content_type not in ["text/plain", "application/pdf"]:
+        logger.warning(f"[Request:{request_id}] Unsupported file type: {file.content_type}")
         raise HTTPException(status_code=400, detail="Only text and PDF files are supported")
     
     # Get or create user ID
     user_id = get_or_create_user_id(request, response) if request and response else None
+    if user_id:
+        logger.info(f"[Request:{request_id}] User ID: {user_id}")
+    
+    # Track overall processing time
+    upload_start_time = time.time()
     
     # Create a temporary file
     suffix = f".{file.filename.split('.')[-1]}"
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
         # Copy the uploaded file content to the temporary file
+        logger.info(f"[Request:{request_id}] Reading file content")
         file_content = await file.read()
+        file_size = len(file_content)
         temp_file.write(file_content)
         temp_file.flush()
+        logger.info(f"[Request:{request_id}] File saved to temp location, size: {file_size} bytes")
         
         # Create appropriate loader
         if file.filename.lower().endswith('.pdf'):
+            logger.info(f"[Request:{request_id}] Using PDF loader")
             loader = PDFLoader(temp_file.name)
         else:
+            logger.info(f"[Request:{request_id}] Using text loader")
             loader = TextFileLoader(temp_file.name)
         
         try:
             # Load and process the documents
+            logger.info(f"[Request:{request_id}] Loading documents")
+            doc_load_start = time.time()
             documents = loader.load_documents()
+            doc_load_time = time.time() - doc_load_start
+            logger.info(f"[Request:{request_id}] Documents loaded in {doc_load_time:.4f} seconds, count: {len(documents)}")
+            
+            # Split documents into chunks
+            logger.info(f"[Request:{request_id}] Splitting documents into chunks")
+            split_start = time.time()
             texts = text_splitter.split_texts(documents)
+            split_time = time.time() - split_start
+            logger.info(f"[Request:{request_id}] Document splitting completed in {split_time:.4f} seconds, chunk count: {len(texts)}")
+            
+            # Log information about chunk lengths
+            if texts:
+                chunk_lengths = [len(t) for t in texts]
+                logger.info(f"[Request:{request_id}] Chunk statistics: min={min(chunk_lengths)}, max={max(chunk_lengths)}, avg={sum(chunk_lengths)/len(chunk_lengths):.2f} chars")
             
             # Create vector database
+            logger.info(f"[Request:{request_id}] Creating vector database: {QDRANT_COLLECTION}_{session_id}")
+            vector_start = time.time()
             vector_db = QdrantVectorDatabase(
                 collection_name=f"{QDRANT_COLLECTION}_{session_id}",
                 host=QDRANT_HOST,
@@ -210,9 +246,15 @@ async def upload_file(
                 prefer_grpc=QDRANT_PREFER_GRPC,
                 in_memory=QDRANT_IN_MEMORY
             )
+            
+            # Build the vector database
+            logger.info(f"[Request:{request_id}] Building vector database with {len(texts)} chunks")
             vector_db = await vector_db.abuild_from_list(texts)
+            vector_time = time.time() - vector_start
+            logger.info(f"[Request:{request_id}] Vector database creation completed in {vector_time:.4f} seconds")
             
             # Create chat model
+            logger.info(f"[Request:{request_id}] Creating chat model")
             chat_openai = ChatOpenAI()
             
             # Get user prompts
@@ -222,17 +264,24 @@ async def upload_file(
             }
             
             # Create the retrieval pipeline with user-specific prompts
+            pipeline_start = time.time()
+            logger.info(f"[Request:{request_id}] Creating retrieval pipeline")
             retrieval_pipeline = RetrievalAugmentedQAPipeline(
                 vector_db_retriever=vector_db,
                 llm=chat_openai,
                 system_template=user_prompt_templates["system_template"],
                 user_template=user_prompt_templates["user_template"]
             )
+            pipeline_time = time.time() - pipeline_start
+            logger.info(f"[Request:{request_id}] Retrieval pipeline created in {pipeline_time:.4f} seconds")
             
             # Store the retrieval pipeline in the user session
             user_sessions[session_id] = retrieval_pipeline
+            logger.info(f"[Request:{request_id}] Retrieval pipeline stored in session {session_id}")
             
             # Generate document description and suggested questions
+            logger.info(f"[Request:{request_id}] Generating document description and questions")
+            summary_start = time.time()
             doc_content = "\n".join(texts[:5])  # Use first few chunks for summary
             
             description_prompt = f"""
@@ -248,63 +297,94 @@ async def upload_file(
             """
             
             # Get document description
+            logger.info(f"[Request:{request_id}] Generating document description")
             description_response = await chat_openai.acreate_single_response(description_prompt)
             document_description = description_response.strip()
             
             # Get suggested questions
+            logger.info(f"[Request:{request_id}] Generating suggested questions")
             questions_response = await chat_openai.acreate_single_response(questions_prompt)
             
             # Try to parse the questions as JSON, or extract them as best as possible
             try:
                 import json
                 suggested_questions = json.loads(questions_response)
+                logger.info(f"[Request:{request_id}] Successfully parsed suggested questions as JSON")
             except:
                 # Extract questions with a fallback method
+                logger.info(f"[Request:{request_id}] Parsing JSON failed, using fallback method")
                 import re
                 questions = re.findall(r'["\']([^"\']+)["\']', questions_response)
                 if not questions or len(questions) < 3:
                     questions = [q.strip() for q in questions_response.split("\n") if "?" in q]
+                    logger.info(f"[Request:{request_id}] Extracted questions using line splitting: {len(questions)} found")
                 if not questions or len(questions) < 3:
+                    logger.info(f"[Request:{request_id}] No questions found, using default questions")
                     questions = ["What is the main topic of this document?", 
                                 "What are the key points discussed in the document?", 
                                 "How can I apply the information in this document?"]
                 suggested_questions = questions[:3]
+            
+            summary_time = time.time() - summary_start
+            logger.info(f"[Request:{request_id}] Document summary generation completed in {summary_time:.4f} seconds")
+            
+            total_time = time.time() - upload_start_time
+            logger.info(f"[Request:{request_id}] Total processing time: {total_time:.4f} seconds")
             
             result = {
                 "status": "success", 
                 "message": f"Processed {file.filename}", 
                 "session_id": session_id,
                 "document_description": document_description,
-                "suggested_questions": suggested_questions
+                "suggested_questions": suggested_questions,
+                "processing_stats": {
+                    "total_time": total_time,
+                    "doc_load_time": doc_load_time,
+                    "split_time": split_time,
+                    "vector_time": vector_time,
+                    "chunk_count": len(texts)
+                }
             }
             
             # Add user_id to result if available
             if user_id:
                 result["user_id"] = user_id
-                
+            
+            logger.info(f"[Request:{request_id}] Upload processing completed successfully")    
             return result
             
+        except Exception as e:
+            error_time = time.time() - upload_start_time
+            logger.error(f"[Request:{request_id}] Error processing upload after {error_time:.4f} seconds: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Error processing file: {str(e)}")
         finally:
             # Clean up the temporary file
             try:
                 os.unlink(temp_file.name)
+                logger.info(f"[Request:{request_id}] Temp file cleaned up")
             except Exception as e:
-                print(f"Error cleaning up temporary file: {e}")
+                logger.error(f"[Request:{request_id}] Error cleaning up temporary file: {e}")
 
 @app.post("/query", response_model=QueryResponse)
 async def query(request: QueryRequest):
     session_id = request.session_id
     user_id = request.user_id
+    request_id = str(uuid.uuid4())[:8]
+    
+    logger.info(f"[Request:{request_id}] Query request received - session_id={session_id}, user_id={user_id}, query='{request.query}'")
     
     # Check if session exists
     if session_id not in user_sessions:
+        logger.warning(f"[Request:{request_id}] Session not found: {session_id}")
         raise HTTPException(status_code=404, detail="Session not found. Please upload a document first.")
     
     # Get the retrieval pipeline from the session
     retrieval_pipeline = user_sessions[session_id]
+    logger.info(f"[Request:{request_id}] Retrieved pipeline for session {session_id}")
     
     # Update prompts if user_id is provided and different from current
     if user_id and retrieval_pipeline.system_template != get_user_prompts(user_id)["system_template"]:
+        logger.info(f"[Request:{request_id}] Updating prompt templates for user {user_id}")
         user_prompt_templates = get_user_prompts(user_id)
         retrieval_pipeline.update_templates(
             user_prompt_templates["system_template"],
@@ -312,12 +392,33 @@ async def query(request: QueryRequest):
         )
     
     # Run the query
+    start_time = time.time()
+    logger.info(f"[Request:{request_id}] Executing RAG pipeline")
     result = await retrieval_pipeline.arun_pipeline(request.query, user_id)
     
     # Process the result and return the response
     response_text = ""
+    token_count = 0
     async for chunk in result["response"]:
         response_text += chunk
+        token_count += 1
+    
+    process_time = time.time() - start_time
+    
+    # Log detailed information about the response
+    logger.info(f"[Request:{request_id}] Request processed in {process_time:.4f} seconds, response length: {len(response_text)} chars, {token_count} tokens")
+    
+    # Extract and log metrics from result
+    if "search_time" in result:
+        logger.info(f"[Request:{request_id}] Vector search time: {result['search_time']:.4f} seconds")
+    if "context_length" in result:
+        logger.info(f"[Request:{request_id}] Context length: {result['context_length']} characters")
+    
+    # Log context scores information
+    context_list = result.get("context", [])
+    if context_list:
+        scores = [score for _, score in context_list]
+        logger.info(f"[Request:{request_id}] Context similarity scores: min={min(scores):.4f}, max={max(scores):.4f}, avg={sum(scores)/len(scores):.4f}")
     
     return {"response": response_text, "session_id": session_id}
 
@@ -325,16 +426,22 @@ async def query(request: QueryRequest):
 async def stream_query(request: QueryRequest):
     session_id = request.session_id
     user_id = request.user_id
+    request_id = str(uuid.uuid4())[:8]
+    
+    logger.info(f"[Request:{request_id}] Stream query request received - session_id={session_id}, user_id={user_id}, query='{request.query}'")
     
     # Check if session exists
     if session_id not in user_sessions:
+        logger.warning(f"[Request:{request_id}] Session not found: {session_id}")
         raise HTTPException(status_code=404, detail="Session not found. Please upload a document first.")
     
     # Get the retrieval pipeline from the session
     retrieval_pipeline = user_sessions[session_id]
+    logger.info(f"[Request:{request_id}] Retrieved pipeline for session {session_id}")
     
     # Update prompts if user_id is provided and different from current
     if user_id and retrieval_pipeline.system_template != get_user_prompts(user_id)["system_template"]:
+        logger.info(f"[Request:{request_id}] Updating prompt templates for user {user_id}")
         user_prompt_templates = get_user_prompts(user_id)
         retrieval_pipeline.update_templates(
             user_prompt_templates["system_template"],
@@ -342,12 +449,32 @@ async def stream_query(request: QueryRequest):
         )
     
     # Run the query
+    start_time = time.time()
+    logger.info(f"[Request:{request_id}] Executing RAG pipeline for streaming")
     result = await retrieval_pipeline.arun_pipeline(request.query, user_id)
     
-    async def generate():
-        async for chunk in result["response"]:
-            yield f"data: {json.dumps({'chunk': chunk, 'session_id': session_id, 'user_id': user_id})}\n\n"
+    # Log context information before streaming
+    context_list = result.get("context", [])
+    if context_list:
+        scores = [score for _, score in context_list]
+        logger.info(f"[Request:{request_id}] Context similarity scores: min={min(scores):.4f}, max={max(scores):.4f}, avg={sum(scores)/len(scores):.4f}")
     
+    # Extract and log metrics from result
+    if "search_time" in result:
+        logger.info(f"[Request:{request_id}] Vector search time: {result['search_time']:.4f} seconds")
+    if "context_length" in result:
+        logger.info(f"[Request:{request_id}] Context length: {result['context_length']} characters")
+    
+    async def generate():
+        token_count = 0
+        async for chunk in result["response"]:
+            token_count += 1
+            yield f"data: {json.dumps({'chunk': chunk, 'session_id': session_id, 'user_id': user_id})}\n\n"
+        
+        stream_time = time.time() - start_time
+        logger.info(f"[Request:{request_id}] Stream completed in {stream_time:.4f} seconds, {token_count} tokens")
+    
+    logger.info(f"[Request:{request_id}] Streaming response started")
     return StreamingResponse(
         generate(), 
         media_type="text/event-stream",
@@ -365,19 +492,26 @@ async def stream_query_get(
     request: Request = None,
     response: Response = None
 ):
+    request_id = str(uuid.uuid4())[:8]
+    logger.info(f"[Request:{request_id}] GET stream query received - session_id={session_id}, query='{query}'")
+    
     # Get or create user ID if not provided
     if not user_id and request and response:
         user_id = get_or_create_user_id(request, response)
+        logger.info(f"[Request:{request_id}] Retrieved/created user_id: {user_id}")
     
     # Check if session exists
     if session_id not in user_sessions:
+        logger.warning(f"[Request:{request_id}] Session not found: {session_id}")
         raise HTTPException(status_code=404, detail="Session not found. Please upload a document first.")
     
     # Get the retrieval pipeline from the session
     retrieval_pipeline = user_sessions[session_id]
+    logger.info(f"[Request:{request_id}] Retrieved pipeline for session {session_id}")
     
     # Update prompts if user_id is provided and different from current
     if user_id and retrieval_pipeline.system_template != get_user_prompts(user_id)["system_template"]:
+        logger.info(f"[Request:{request_id}] Updating prompt templates for user {user_id}")
         user_prompt_templates = get_user_prompts(user_id)
         retrieval_pipeline.update_templates(
             user_prompt_templates["system_template"],
@@ -385,15 +519,35 @@ async def stream_query_get(
         )
     
     # Run the query
+    start_time = time.time()
+    logger.info(f"[Request:{request_id}] Executing RAG pipeline for GET streaming")
     result = await retrieval_pipeline.arun_pipeline(query, user_id)
     
+    # Log context information before streaming
+    context_list = result.get("context", [])
+    if context_list:
+        scores = [score for _, score in context_list]
+        logger.info(f"[Request:{request_id}] Context similarity scores: min={min(scores):.4f}, max={max(scores):.4f}, avg={sum(scores)/len(scores):.4f}")
+    
+    # Extract and log metrics from result
+    if "search_time" in result:
+        logger.info(f"[Request:{request_id}] Vector search time: {result['search_time']:.4f} seconds")
+    if "context_length" in result:
+        logger.info(f"[Request:{request_id}] Context length: {result['context_length']} characters")
+    
     async def generate():
+        token_count = 0
         async for chunk in result["response"]:
+            token_count += 1
             yield f"data: {json.dumps({'chunk': chunk, 'session_id': session_id, 'user_id': user_id})}\n\n"
         
         # Send an event to signal completion
         yield f"event: complete\ndata: {json.dumps({'session_id': session_id, 'user_id': user_id})}\n\n"
+        
+        stream_time = time.time() - start_time
+        logger.info(f"[Request:{request_id}] Stream completed in {stream_time:.4f} seconds, {token_count} tokens")
     
+    logger.info(f"[Request:{request_id}] GET streaming response started")
     return StreamingResponse(
         generate(), 
         media_type="text/event-stream",

@@ -17,6 +17,7 @@ from openai import OpenAI
 from langsmith.wrappers import wrap_openai
 
 # Import and setup logging
+from aimakerspace.vectordatabase import VectorDatabase
 from api.logging_config import setup_logging
 logger = setup_logging(level=logging.INFO)
 
@@ -208,14 +209,7 @@ async def upload_file(
             # Create vector database
             logger.info(f"[Request:{request_id}] Creating vector database: {QDRANT_COLLECTION}_{session_id}")
             vector_start = time.time()
-            vector_db = QdrantVectorDatabase(
-                collection_name=f"{QDRANT_COLLECTION}_{session_id}",
-                host=QDRANT_HOST,
-                port=QDRANT_PORT,
-                grpc_port=QDRANT_GRPC_PORT,
-                prefer_grpc=QDRANT_PREFER_GRPC,
-                in_memory=QDRANT_IN_MEMORY
-            )
+            vector_db = VectorDatabase()
             
             # Build the vector database
             logger.info(f"[Request:{request_id}] Building vector database with {len(texts)} chunks")

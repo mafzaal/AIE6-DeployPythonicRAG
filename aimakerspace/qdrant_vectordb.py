@@ -1,6 +1,5 @@
 import numpy as np
 from typing import List, Tuple, Callable, Dict, Any, Optional
-import asyncio
 import uuid
 
 from qdrant_client import QdrantClient, AsyncQdrantClient
@@ -12,7 +11,7 @@ from aimakerspace.openai_utils.embedding import EmbeddingModel
 
 class QdrantVectorDatabase:
     """
-    Qdrant vector database implementation that follows the same interface
+    Simplified Qdrant vector database implementation that follows the same interface
     as the in-memory VectorDatabase class.
     """
     def __init__(self, 
@@ -56,10 +55,6 @@ class QdrantVectorDatabase:
                 prefer_grpc=prefer_grpc
             )
             
-        # Store mapping from keys to ids
-        self.key_to_id: Dict[str, str] = {}
-        self.id_to_key: Dict[str, str] = {}
-        
         # Create collection if it doesn't exist
         vector_size = self.embedding_model.get_embedding_dimension()
         self._ensure_collection(vector_size)
@@ -132,12 +127,8 @@ class QdrantVectorDatabase:
     
     def insert(self, key: str, vector: np.array) -> None:
         """Insert a vector into the database"""
-        # Generate a unique ID for this key
-        point_id = str(uuid.uuid4())
-        
-        # Store the mapping
-        self.key_to_id[key] = point_id
-        self.id_to_key[point_id] = key
+        # Use the text itself as the ID by hashing it
+        point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, key))
         
         # Insert the point
         self.client.upsert(
@@ -168,17 +159,17 @@ class QdrantVectorDatabase:
         search_result = self.client.search(
             collection_name=self.collection_name,
             query_vector=query_vector_list,
-            limit=k
+            limit=k,
+            with_payload=True
         )
         
         results = []
         for scored_point in search_result:
-            point_id = scored_point.id
             score = scored_point.score
-            # Get the key from the id
-            if point_id in self.id_to_key:
-                key = self.id_to_key[point_id]
-                results.append((key, score))
+            # Get the text directly from the payload
+            if scored_point.payload and "text" in scored_point.payload:
+                text = scored_point.payload["text"]
+                results.append((text, score))
         
         return results
     
@@ -196,10 +187,9 @@ class QdrantVectorDatabase:
     
     def retrieve_from_key(self, key: str) -> Optional[np.array]:
         """Retrieve a vector by key"""
-        if key not in self.key_to_id:
-            return None
+        # Use the text itself as the ID by hashing it
+        point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, key))
         
-        point_id = self.key_to_id[key]
         points = self.client.retrieve(
             collection_name=self.collection_name,
             ids=[point_id]
@@ -218,13 +208,8 @@ class QdrantVectorDatabase:
         
         embeddings = await self.embedding_model.async_get_embeddings(list_of_text)
         
-        # Generate unique IDs for each text
-        point_ids = [str(uuid.uuid4()) for _ in range(len(list_of_text))]
-        
-        # Store mappings
-        for text, point_id in zip(list_of_text, point_ids):
-            self.key_to_id[text] = point_id
-            self.id_to_key[point_id] = text
+        # Generate IDs for each text by hashing the text itself
+        point_ids = [str(uuid.uuid5(uuid.NAMESPACE_DNS, text)) for text in list_of_text]
         
         # Prepare points for batch insertion
         points = [
@@ -266,4 +251,17 @@ class QdrantVectorDatabase:
         Returns:
             List[str]: A list of all text documents
         """
-        return list(self.key_to_id.keys()) 
+        # Get all points with payload
+        scroll_result = self.client.scroll(
+            collection_name=self.collection_name,
+            limit=10000,  # Use a high limit to get all
+            with_payload=True
+        )
+        
+        points = scroll_result[0]
+        texts = []
+        for point in points:
+            if point.payload and "text" in point.payload:
+                texts.append(point.payload["text"])
+        
+        return texts 

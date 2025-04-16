@@ -26,12 +26,7 @@ services:
       - LANGSMITH_TRACING=${LANGSMITH_TRACING}
       - PORT=7860
       - HOST=0.0.0.0
-      - QDRANT_HOST=qdrant
-      - QDRANT_PORT=6333
-      - QDRANT_GRPC_PORT=6334
-      - QDRANT_PREFER_GRPC=true
-      - QDRANT_COLLECTION=documents
-      - QDRANT_IN_MEMORY=false
+      - QDRANT_IN_MEMORY=${QDRANT_IN_MEMORY}
     env_file:
       - .env
     depends_on:

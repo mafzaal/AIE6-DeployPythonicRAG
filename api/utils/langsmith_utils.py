@@ -125,9 +125,10 @@ class LangSmithTracer:
                 else:
                     context_texts.append(str(doc))
             
-            # Log the run
-            run = self.client.run_create(
+            # Log the run using updated API
+            self.client.create_run(
                 name="Document Retrieval",
+                run_type="retriever",
                 inputs={"query": query},
                 outputs={"retrieved_documents": context_texts},
                 runtime={
@@ -138,8 +139,8 @@ class LangSmithTracer:
                 metadata=metadata
             )
             
-            logger.info(f"Logged retrieval run to LangSmith with ID: {run.id}")
-            return run.id
+            logger.info(f"Logged retrieval run to LangSmith")
+            
             
         except Exception as e:
             exc_type, exc_obj, exc_tb = sys.exc_info()
@@ -183,9 +184,10 @@ class LangSmithTracer:
                 "parent_run_id": parent_run_id
             }
             
-            # Log the run
-            run = self.client.run_create(
+            # Log the run using updated API
+            self.client.create_run(
                 name="RAG Generation",
+                run_type="llm",
                 inputs={
                     "query": query,
                     "context": context,
@@ -198,8 +200,7 @@ class LangSmithTracer:
                 metadata=metadata
             )
             
-            logger.info(f"Logged generation run to LangSmith with ID: {run.id}")
-            return run.id
+            logger.info(f"Logged generation run to LangSmith")
             
         except Exception as e:
             exc_type, exc_obj, exc_tb = sys.exc_info()

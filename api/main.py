@@ -5,37 +5,32 @@ import json
 import uuid
 import time
 import logging
+import sys
+import traceback
 from typing import List, Dict, Optional
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Cookie, Response, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
+from openai import OpenAI
+from langsmith.wrappers import wrap_openai
 
 # Import and setup logging
 from api.logging_config import setup_logging
 logger = setup_logging(level=logging.INFO)
 
 from aimakerspace.text_utils import CharacterTextSplitter, TextFileLoader, PDFLoader
-from aimakerspace.openai_utils.prompts import (
-    UserRolePrompt,
-    SystemRolePrompt
-)
+from langchain_core.prompts import SystemMessagePromptTemplate, HumanMessagePromptTemplate, ChatPromptTemplate
 from aimakerspace.qdrant_vectordb import QdrantVectorDatabase
-from aimakerspace.openai_utils.chatmodel import ChatOpenAI
+from langchain_openai import ChatOpenAI
+#from aimakerspace.openai_utils.chatmodel import ChatOpenAI
 
 # API Version information
 API_VERSION = "0.2.0"
 BUILD_DATE = "2024-06-14"  # Update this when making significant changes
 
-# Qdrant settings from environment variables
-import os
-QDRANT_HOST = os.getenv("QDRANT_HOST", "localhost")
-QDRANT_PORT = int(os.getenv("QDRANT_PORT", 6333))
-QDRANT_GRPC_PORT = int(os.getenv("QDRANT_GRPC_PORT", 6334))
-QDRANT_PREFER_GRPC = os.getenv("QDRANT_PREFER_GRPC", "True").lower() == "true"
-QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "documents")
-QDRANT_IN_MEMORY = os.getenv("QDRANT_IN_MEMORY", "True").lower() == "true"
+from .config import QDRANT_HOST, QDRANT_PORT, QDRANT_GRPC_PORT, QDRANT_PREFER_GRPC, QDRANT_COLLECTION, QDRANT_IN_MEMORY 
 
 app = FastAPI(
     title="Quick Understand API",
@@ -64,83 +59,19 @@ user_sessions = {}
 # Dictionary to store user-specific prompts
 user_prompts = {}
 
-# Define default prompt templates
-DEFAULT_SYSTEM_TEMPLATE = """\
-Use the following context to answer a users question. If you cannot find the answer in the context, say you don't know the answer.
+# Import default prompt templates from prompts.py
+from .utils.prompts import DEFAULT_SYSTEM_TEMPLATE, DEFAULT_USER_TEMPLATE
 
-IMPORTANT: Format your response with your thinking process and final answer as follows:
-1. First provide your reasoning process inside <think>...</think> tags
-2. Then provide your final answer, either:
-   - Using <answer>...</answer> tags (preferred)
-   - Or simply provide the answer directly after your thinking section
-
-For example:
-<think>
-I'm analyzing the question in relation to the context. The question asks about X, and in the context I see information about Y and Z, which relates to X in the following way...
-</think>
-<answer>
-Based on the context, the answer is...
-</answer>
-
-Or alternatively:
-<think>
-I'm analyzing the question in relation to the context. The question asks about X, and in the context I see information about Y and Z, which relates to X in the following way...
-</think>
-Based on the context, the answer is...
-"""
-
-DEFAULT_USER_TEMPLATE = """\
-Context:
-{context}
-
-Question:
-{question}
-"""
-
-# Model for prompt templates
-class PromptTemplate(BaseModel):
-    system_template: str
-    user_template: str
-
-# Model for user identification
-class UserIdentification(BaseModel):
-    user_id: str
-
-# Extended query request with optional user ID
-class QueryRequest(BaseModel):
-    session_id: str
-    query: str
-    user_id: Optional[str] = None
-
-class QueryResponse(BaseModel):
-    response: str
-    session_id: str
-
-# Document summary models
-class DocumentSummaryRequest(BaseModel):
-    session_id: str
-    user_id: Optional[str] = None
-
-class DocumentSummaryResponse(BaseModel):
-    keyTopics: List[str]
-    entities: List[str]
-    wordCloudData: List[dict]
-    documentStructure: List[dict]
-
-# Quiz models
-class QuizQuestion(BaseModel):
-    id: str
-    text: str
-    options: List[str]
-    correctAnswer: str
-
-class GenerateQuizRequest(BaseModel):
-    session_id: str
-    num_questions: int = 5
-    user_id: Optional[str] = None
-
-class GenerateQuizResponse(BaseModel):
-    questions: List[QuizQuestion]
+from api.models.pydantic_models import (
+    PromptTemplate,
+    QueryRequest,
+    QueryResponse,
+    DocumentSummaryRequest,
+    DocumentSummaryResponse,
+    QuizQuestion,
+    GenerateQuizRequest,
+    GenerateQuizResponse
+)
 
 # Helper function to get or create a user ID
 def get_or_create_user_id(request: Request, response: Response) -> str:
@@ -173,6 +104,45 @@ def get_user_prompts(user_id: str) -> Dict[str, str]:
         }
     
     return user_prompts[user_id]
+
+# Helper function to extend OpenAI client with needed methods
+async def acreate_single_response(client, prompt):
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.7,
+    )
+    return response.choices[0].message.content
+
+# Helper function to provide streaming capability for OpenAI client
+async def astream_openai(client, messages):
+    # Convert LangChain message format to OpenAI format
+    openai_messages = []
+    for message in messages:
+        role = "user"
+        if hasattr(message, "type"):
+            if message.type == "system":
+                role = "system"
+            elif message.type == "human":
+                role = "user"
+            elif message.type == "ai":
+                role = "assistant"
+        
+        openai_messages.append({
+            "role": role,
+            "content": message.content
+        })
+    
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=openai_messages,
+        temperature=0.7,
+        stream=True,
+    )
+    
+    for chunk in response:
+        if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
+            yield chunk.choices[0].delta.content
 
 @app.post("/upload")
 async def upload_file(
@@ -255,7 +225,9 @@ async def upload_file(
             
             # Create chat model
             logger.info(f"[Request:{request_id}] Creating chat model")
-            chat_openai = ChatOpenAI()
+            
+
+            openai_client = wrap_openai(OpenAI())
             
             # Get user prompts
             user_prompt_templates = get_user_prompts(user_id) if user_id else {
@@ -268,7 +240,7 @@ async def upload_file(
             logger.info(f"[Request:{request_id}] Creating retrieval pipeline")
             retrieval_pipeline = RetrievalAugmentedQAPipeline(
                 vector_db_retriever=vector_db,
-                llm=chat_openai,
+                llm=openai_client,
                 system_template=user_prompt_templates["system_template"],
                 user_template=user_prompt_templates["user_template"]
             )
@@ -298,12 +270,12 @@ async def upload_file(
             
             # Get document description
             logger.info(f"[Request:{request_id}] Generating document description")
-            description_response = await chat_openai.acreate_single_response(description_prompt)
+            description_response = await acreate_single_response(openai_client, description_prompt)
             document_description = description_response.strip()
             
             # Get suggested questions
             logger.info(f"[Request:{request_id}] Generating suggested questions")
-            questions_response = await chat_openai.acreate_single_response(questions_prompt)
+            questions_response = await acreate_single_response(openai_client, questions_prompt)
             
             # Try to parse the questions as JSON, or extract them as best as possible
             try:
@@ -355,8 +327,13 @@ async def upload_file(
             
         except Exception as e:
             error_time = time.time() - upload_start_time
-            logger.error(f"[Request:{request_id}] Error processing upload after {error_time:.4f} seconds: {str(e)}")
-            raise HTTPException(status_code=500, detail=f"Error processing file: {str(e)}")
+            exc_type, exc_obj, exc_tb = sys.exc_info()
+            fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+            error_location = f"{fname}:{exc_tb.tb_lineno}"
+            error_traceback = "".join(traceback.format_tb(exc_tb))
+            logger.error(f"[Request:{request_id}] Error processing upload after {error_time:.4f} seconds at {error_location}: {str(e)}")
+            logger.error(f"[Request:{request_id}] Traceback: {error_traceback}")
+            raise HTTPException(status_code=500, detail=f"Error processing file: {str(e)} at {error_location}")
         finally:
             # Clean up the temporary file
             try:
@@ -394,7 +371,7 @@ async def query(request: QueryRequest):
     # Run the query
     start_time = time.time()
     logger.info(f"[Request:{request_id}] Executing RAG pipeline")
-    result = await retrieval_pipeline.arun_pipeline(request.query, user_id)
+    result = await retrieval_pipeline.arun_pipeline(request.query, user_id, session_id)
     
     # Process the result and return the response
     response_text = ""
@@ -451,38 +428,38 @@ async def stream_query(request: QueryRequest):
     # Run the query
     start_time = time.time()
     logger.info(f"[Request:{request_id}] Executing RAG pipeline for streaming")
-    result = await retrieval_pipeline.arun_pipeline(request.query, user_id)
+    result = await retrieval_pipeline.arun_pipeline(request.query, user_id, session_id)
     
-    # Log context information before streaming
+    # Extract context for logging
     context_list = result.get("context", [])
-    if context_list:
-        scores = [score for _, score in context_list]
+    scores = [score for _, score in context_list] if context_list else []
+    if scores:
         logger.info(f"[Request:{request_id}] Context similarity scores: min={min(scores):.4f}, max={max(scores):.4f}, avg={sum(scores)/len(scores):.4f}")
-    
-    # Extract and log metrics from result
-    if "search_time" in result:
-        logger.info(f"[Request:{request_id}] Vector search time: {result['search_time']:.4f} seconds")
-    if "context_length" in result:
-        logger.info(f"[Request:{request_id}] Context length: {result['context_length']} characters")
     
     async def generate():
         token_count = 0
+        chunk_count = 0
+        response_buffer = ""
         async for chunk in result["response"]:
             token_count += 1
-            yield f"data: {json.dumps({'chunk': chunk, 'session_id': session_id, 'user_id': user_id})}\n\n"
+            chunk_count += 1
+            response_buffer += chunk
+            
+            # Collect 5 tokens before sending or at the end of the stream
+            if token_count % 5 == 0 or chunk == "":
+                yield f"data: {json.dumps({'text': response_buffer})}\n\n"
+                response_buffer = ""
         
-        stream_time = time.time() - start_time
-        logger.info(f"[Request:{request_id}] Stream completed in {stream_time:.4f} seconds, {token_count} tokens")
+        # Send any remaining text
+        if response_buffer:
+            yield f"data: {json.dumps({'text': response_buffer})}\n\n"
+        
+        # Send end of stream marker
+        completion_time = time.time() - start_time
+        logger.info(f"[Request:{request_id}] Streaming completed in {completion_time:.4f} seconds, sent {token_count} tokens in {chunk_count} chunks")
+        yield f"data: [DONE]\n\n"
     
-    logger.info(f"[Request:{request_id}] Streaming response started")
-    return StreamingResponse(
-        generate(), 
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-        }
-    )
+    return StreamingResponse(generate(), media_type="text/event-stream")
 
 @app.get("/stream")
 async def stream_query_get(
@@ -493,12 +470,12 @@ async def stream_query_get(
     response: Response = None
 ):
     request_id = str(uuid.uuid4())[:8]
-    logger.info(f"[Request:{request_id}] GET stream query received - session_id={session_id}, query='{query}'")
     
     # Get or create user ID if not provided
-    if not user_id and request and response:
+    if request and response and not user_id:
         user_id = get_or_create_user_id(request, response)
-        logger.info(f"[Request:{request_id}] Retrieved/created user_id: {user_id}")
+    
+    logger.info(f"[Request:{request_id}] Stream GET query received - session_id={session_id}, user_id={user_id}, query='{query}'")
     
     # Check if session exists
     if session_id not in user_sessions:
@@ -520,42 +497,39 @@ async def stream_query_get(
     
     # Run the query
     start_time = time.time()
-    logger.info(f"[Request:{request_id}] Executing RAG pipeline for GET streaming")
-    result = await retrieval_pipeline.arun_pipeline(query, user_id)
+    logger.info(f"[Request:{request_id}] Executing RAG pipeline for streaming (GET)")
+    result = await retrieval_pipeline.arun_pipeline(query, user_id, session_id)
     
-    # Log context information before streaming
+    # Extract context for logging
     context_list = result.get("context", [])
-    if context_list:
-        scores = [score for _, score in context_list]
+    scores = [score for _, score in context_list] if context_list else []
+    if scores:
         logger.info(f"[Request:{request_id}] Context similarity scores: min={min(scores):.4f}, max={max(scores):.4f}, avg={sum(scores)/len(scores):.4f}")
-    
-    # Extract and log metrics from result
-    if "search_time" in result:
-        logger.info(f"[Request:{request_id}] Vector search time: {result['search_time']:.4f} seconds")
-    if "context_length" in result:
-        logger.info(f"[Request:{request_id}] Context length: {result['context_length']} characters")
     
     async def generate():
         token_count = 0
+        chunk_count = 0
+        response_buffer = ""
         async for chunk in result["response"]:
             token_count += 1
-            yield f"data: {json.dumps({'chunk': chunk, 'session_id': session_id, 'user_id': user_id})}\n\n"
+            chunk_count += 1
+            response_buffer += chunk
+            
+            # Collect 5 tokens before sending or at the end of the stream
+            if token_count % 5 == 0 or chunk == "":
+                yield f"data: {json.dumps({'text': response_buffer})}\n\n"
+                response_buffer = ""
         
-        # Send an event to signal completion
-        yield f"event: complete\ndata: {json.dumps({'session_id': session_id, 'user_id': user_id})}\n\n"
+        # Send any remaining text
+        if response_buffer:
+            yield f"data: {json.dumps({'text': response_buffer})}\n\n"
         
-        stream_time = time.time() - start_time
-        logger.info(f"[Request:{request_id}] Stream completed in {stream_time:.4f} seconds, {token_count} tokens")
+        # Send end of stream marker
+        completion_time = time.time() - start_time
+        logger.info(f"[Request:{request_id}] Streaming completed in {completion_time:.4f} seconds, sent {token_count} tokens in {chunk_count} chunks")
+        yield f"data: [DONE]\n\n"
     
-    logger.info(f"[Request:{request_id}] GET streaming response started")
-    return StreamingResponse(
-        generate(), 
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-        }
-    )
+    return StreamingResponse(generate(), media_type="text/event-stream")
 
 @app.post("/document-summary", response_model=DocumentSummaryResponse)
 async def get_document_summary(request: DocumentSummaryRequest):
@@ -622,7 +596,7 @@ async def get_document_summary(request: DocumentSummaryRequest):
     # Get LLM response
     try:
         llm = retrieval_pipeline.llm
-        response = await llm.acreate_single_response(summary_prompt)
+        response = await acreate_single_response(llm, summary_prompt)
         
         # Parse the JSON
         # Find JSON content (sometimes the LLM adds extra text)
@@ -734,7 +708,7 @@ async def generate_quiz(request: GenerateQuizRequest):
     # Get LLM response
     try:
         llm = retrieval_pipeline.llm
-        response = await llm.acreate_single_response(quiz_prompt)
+        response = await acreate_single_response(llm, quiz_prompt)
         
         # Parse the JSON
         # Find JSON content (sometimes the LLM adds extra text)
@@ -937,31 +911,88 @@ class RetrievalAugmentedQAPipeline:
         self.vector_db_retriever = vector_db_retriever
         self.system_template = system_template
         self.user_template = user_template
-        self.system_role_prompt = SystemRolePrompt(system_template)
-        self.user_role_prompt = UserRolePrompt(user_template)
+        self.system_prompt_template = SystemMessagePromptTemplate.from_template(system_template)
+        self.human_prompt_template = HumanMessagePromptTemplate.from_template(user_template)
+        self.chat_prompt_template = ChatPromptTemplate.from_messages([
+            self.system_prompt_template,
+            self.human_prompt_template
+        ])
+        
+        # Import LangSmith utilities
+        try:
+            from api.utils.langsmith_utils import langsmith_tracer
+            self.langsmith_tracer = langsmith_tracer
+            logger.info("LangSmith tracer initialized in RAG pipeline")
+        except ImportError:
+            logger.warning("LangSmith utils not available, tracing disabled")
+            self.langsmith_tracer = None
 
     def update_templates(self, system_template: str, user_template: str):
         """Update prompt templates"""
         self.system_template = system_template
         self.user_template = user_template
-        self.system_role_prompt = SystemRolePrompt(system_template)
-        self.user_role_prompt = UserRolePrompt(user_template)
+        self.system_prompt_template = SystemMessagePromptTemplate.from_template(system_template)
+        self.human_prompt_template = HumanMessagePromptTemplate.from_template(user_template)
+        self.chat_prompt_template = ChatPromptTemplate.from_messages([
+            self.system_prompt_template,
+            self.human_prompt_template
+        ])
 
-    async def arun_pipeline(self, user_query: str, user_id: str):
+    async def arun_pipeline(self, user_query: str, user_id: str = None, session_id: str = None):
+        # Get context from vector database
         context_list = self.vector_db_retriever.search_by_text(user_query, k=4)
+        
+        # Log context retrieval to LangSmith if available
+        retrieval_run_id = None
+        if self.langsmith_tracer and self.langsmith_tracer.tracing_enabled and self.langsmith_tracer.client:
+            # Add debug logging
+            logger.info(f"Attempting to log retrieval to LangSmith. Tracer enabled: {self.langsmith_tracer.tracing_enabled}")
+            try:
+                retrieval_run_id = self.langsmith_tracer.log_retrieval(
+                    query=user_query,
+                    retrieved_documents=context_list,
+                    user_id=user_id,
+                    session_id=session_id
+                )
+                logger.info(f"Successfully logged retrieval to LangSmith with run_id: {retrieval_run_id}")
+            except Exception as e:
+                logger.error(f"Failed to log retrieval to LangSmith: {str(e)}")
 
+        # Format context for prompt
         context_prompt = ""
         for context in context_list:
             context_prompt += context[0] + "\n"
 
-        formatted_system_prompt = self.system_role_prompt.create_message()
-        formatted_user_prompt = self.user_role_prompt.create_message(
-            question=user_query, context=context_prompt
+        # Create messages using LangChain prompt templates
+        messages = self.chat_prompt_template.format_messages(
+            question=user_query, 
+            context=context_prompt
         )
 
         async def generate_response():
-            async for chunk in self.llm.astream([formatted_system_prompt, formatted_user_prompt]):
+            response_chunks = []
+            # Use our custom streaming function
+            async for chunk in astream_openai(self.llm, messages):
+                response_chunks.append(chunk)
                 yield chunk
+            
+            # Log generation to LangSmith if available
+            if self.langsmith_tracer and self.langsmith_tracer.tracing_enabled and self.langsmith_tracer.client:
+                try:
+                    full_response = "".join(response_chunks)
+                    self.langsmith_tracer.log_rag_generation(
+                        query=user_query,
+                        context=context_prompt,
+                        response=full_response,
+                        system_prompt=self.system_template,
+                        user_prompt=self.user_template,
+                        user_id=user_id,
+                        session_id=session_id,
+                        parent_run_id=retrieval_run_id
+                    )
+                    logger.info("Successfully logged generation to LangSmith")
+                except Exception as e:
+                    logger.error(f"Failed to log generation to LangSmith: {str(e)}")
 
         return {"response": generate_response(), "context": context_list}
 

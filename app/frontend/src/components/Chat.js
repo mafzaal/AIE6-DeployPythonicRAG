@@ -201,7 +201,7 @@ const Chat = ({ sessionId, userId, docDescription, suggestedQuestions, selectedQ
       
       eventSource.onmessage = (event) => {
         const data = JSON.parse(event.data);
-        streamedText += data.chunk;
+        streamedText += data.text;
         
         // Parse current content
         const parsedResponse = parseThinkingAnswer(streamedText);

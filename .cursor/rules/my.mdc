@@ -1,0 +1,17 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+
+# Your rule content
+
+## Python
+
+- Always use `uv` as python package manager
+- Always create and use python venv from root of the folder
+
+
+## Node.js
+
+- Always use `pnpm` as node package manager

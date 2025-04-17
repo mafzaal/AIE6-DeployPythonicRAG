@@ -204,7 +204,7 @@ function App() {
         
         <footer className="w-full py-4 px-6 text-center text-sm text-muted-foreground">
           <div className="flex flex-col items-center justify-center">
-            <p>Made with <span role="img" aria-label="heart" className="text-red-500">❤️</span> and Shadcn/UI</p>
+            <p>Made with <span role="img" aria-label="heart" className="text-red-500">❤️</span> using FastAPI, LangChain, OpenAI, Qdrant and Shadcn/UI</p>
             <div className="text-xs opacity-70 mt-1 flex items-center gap-2 justify-center">
               <span>UI: {getVersionString()}</span>
               {apiVersion && (

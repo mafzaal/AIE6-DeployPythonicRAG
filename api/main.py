@@ -29,7 +29,7 @@ from langchain_openai import ChatOpenAI
 #from aimakerspace.openai_utils.chatmodel import ChatOpenAI
 
 # API Version information
-API_VERSION = "0.2.0"
+API_VERSION = "0.4.0"  # Version from pyproject.toml
 BUILD_DATE = "2024-06-14"  # Update this when making significant changes
 
 from .config import QDRANT_HOST, QDRANT_PORT, QDRANT_GRPC_PORT, QDRANT_PREFER_GRPC, QDRANT_COLLECTION, QDRANT_IN_MEMORY 

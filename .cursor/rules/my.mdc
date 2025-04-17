@@ -15,3 +15,12 @@ alwaysApply: true
 ## Node.js
 
 - Always use `pnpm` as node package manager
+
+
+## Update version
+
+When asked to update version, do following:
+
+- Increment MINOR by 1 in pyproject.toml
+- Increment MINOR by 1 in package.json
+- Update `CHANGELOG.md` with git log history

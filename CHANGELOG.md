@@ -5,6 +5,22 @@ All notable changes to the Quick Understand application will be documented in th
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2024-07-16
+
+### Added
+- Add pandas dependency and refactor document processing in API
+- Implement cookie-less session management and user ID handling for Hugging Face Spaces compatibility
+- Add logging configuration and integrate logging into API endpoints
+
+### Changed
+- Refactor Qdrant integration and update dependencies
+- Refactor LangSmith run logging to use updated API methods
+- Enhance Dockerfile and application configuration for improved functionality
+- Add non-root user and update permissions in Dockerfile
+- Update Dockerfile to improve application structure and logging
+- Enhance Qdrant collection management with error handling and async support
+- Remove version specification from docker-compose.yml for Qdrant service integration
+
 ## [0.3.0] - 2025-04-13
 
 ### Added

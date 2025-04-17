@@ -1,6 +1,6 @@
 [project]
 name = "aie5-deploypythonicrag"
-version = "0.1.0"
+version = "0.4.0"
 description = "Simple Pythonic RAG App"
 readme = "README.md"
 requires-python = ">=3.13"

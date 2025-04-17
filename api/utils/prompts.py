@@ -1,7 +1,5 @@
 from typing import Dict
 
-# Dictionary to store user-specific prompts
-user_prompts = {}
 
 # Define default prompt templates
 DEFAULT_SYSTEM_TEMPLATE = """\
@@ -35,22 +33,3 @@ Context:
 Question:
 {question}
 """
-
-def get_user_prompts(user_id: str) -> Dict[str, str]:
-    """
-    Get prompts for a specific user
-    
-    Args:
-        user_id: User ID to get prompts for
-        
-    Returns:
-        Dictionary with system_template and user_template
-    """
-    if user_id not in user_prompts:
-        # Initialize with default prompts if not exists
-        user_prompts[user_id] = {
-            "system_template": DEFAULT_SYSTEM_TEMPLATE,
-            "user_template": DEFAULT_USER_TEMPLATE
-        }
-    
-    return user_prompts[user_id] 

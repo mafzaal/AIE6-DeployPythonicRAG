@@ -7,6 +7,8 @@ import sys
 import re
 import requests
 from dotenv import load_dotenv
+from langsmith import Client
+from langchain_core.runnables import RunnableParallel
 
 # Ensure environment variables are loaded
 load_dotenv()
@@ -210,3 +212,72 @@ class LangSmithTracer:
 
 # Singleton instance for use throughout the app
 langsmith_tracer = LangSmithTracer() 
+langsmith_client = Client()
+
+SUMMARY_PROMPT = os.getenv("SUMMARY_PROMPT", "pythonic-rag-summary-prompt")
+QUESTIONS_PROMPT = os.getenv("QUESTIONS_PROMPT", "pythonic-rag-questions")
+
+def get_summary_and_questions_chain(summary_prompt: str=SUMMARY_PROMPT, questions_prompt: str=QUESTIONS_PROMPT):
+    """
+    Get summary and questions from a document using LangSmith.
+    
+    Args:
+        document: The document to get summary and questions from.
+        
+    Returns:
+        summary: The summary of the document.
+        questions: The questions generated from the document.
+    """
+        
+    summary_prompt = langsmith_client.pull_prompt(summary_prompt, include_model=True)
+    questions_prompt = langsmith_client.pull_prompt(questions_prompt, include_model=True)
+    
+
+    summary_and_questions = RunnableParallel(
+        summary=summary_prompt,
+        questions=questions_prompt
+    )
+
+    return summary_and_questions
+
+        
+
+def run_summary_and_questions_chain(document: str):
+    """
+    Run the summary and questions chain.
+    Args:
+        document: The document to get summary and questions from.
+    Returns:
+        summary: The summary of the document.
+        questions: The questions generated from the document.
+    """
+    summary_and_questions_chain = get_summary_and_questions_chain()
+    result = summary_and_questions_chain.invoke({"document": document})
+    
+    return {"summary": result["summary"].content, "questions": result["questions"].content}
+
+
+RAG_PROMPT = os.getenv("RAG_PROMPT", "pythonic-rag-prompt:44924504")
+
+def get_rag_pipeline_chain(rag_prompt: str=RAG_PROMPT):
+    """
+    Get the RAG pipeline.
+    """
+    rag_chain = langsmith_client.pull_prompt(rag_prompt, include_model=True)
+
+    return rag_chain
+    
+async def run_rag_pipeline_chain(question: str, context: str):
+    """
+    Run the RAG pipeline.
+    """
+    rag_chain = get_rag_pipeline_chain()
+    return await rag_chain.astream({"question": question, "context": context})
+    
+
+
+if __name__ == "__main__":
+    document = "This is a test document."
+    result = run_summary_and_questions_chain(document)
+    print(result["summary"])
+    print(result["questions"])

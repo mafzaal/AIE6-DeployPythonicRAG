@@ -19,6 +19,7 @@ from langsmith.wrappers import wrap_openai
 # Import and setup logging
 from aimakerspace.vectordatabase import VectorDatabase
 from api.logging_config import setup_logging
+from api.utils.langsmith_utils import get_rag_pipeline_chain, run_summary_and_questions_chain
 logger = setup_logging(level=logging.INFO)
 
 from aimakerspace.text_utils import CharacterTextSplitter, TextFileLoader, PDFLoader
@@ -107,16 +108,16 @@ def get_user_prompts(user_id: str) -> Dict[str, str]:
     return user_prompts[user_id]
 
 # Helper function to extend OpenAI client with needed methods
-async def acreate_single_response(client, prompt):
+async def acreate_single_response(client, prompt,model="gpt-4o-mini"):
     response = client.chat.completions.create(
-        model="gpt-4o-mini",
+        model=model,
         messages=[{"role": "user", "content": prompt}],
         temperature=0.7,
     )
     return response.choices[0].message.content
 
 # Helper function to provide streaming capability for OpenAI client
-async def astream_openai(client, messages):
+async def astream_openai(client, messages,model="gpt-4o-mini"):
     # Convert LangChain message format to OpenAI format
     openai_messages = []
     for message in messages:
@@ -135,7 +136,7 @@ async def astream_openai(client, messages):
         })
     
     response = client.chat.completions.create(
-        model="gpt-4o-mini",
+        model=model,
         messages=openai_messages,
         temperature=0.7,
         stream=True,
@@ -250,31 +251,23 @@ async def upload_file(
             summary_start = time.time()
             doc_content = "\n".join(texts[:5])  # Use first few chunks for summary
             
-            description_prompt = f"""
-            Please provide a brief description of this document in 2-3 sentences:
-            {doc_content}
-            """
+       
+            result = run_summary_and_questions_chain(doc_content)
+
+            document_summary = result["summary"]
+            logger.info(f"[Request:{request_id}] Document summary: {document_summary}")
             
-            questions_prompt = f"""
-            Based on this document content, please suggest 3 specific questions that would be informative to ask:
-            {doc_content}
-            
-            Format your response as a JSON array with 3 question strings.
-            """
-            
-            # Get document description
-            logger.info(f"[Request:{request_id}] Generating document description")
-            description_response = await acreate_single_response(openai_client, description_prompt)
-            document_description = description_response.strip()
+            questions_response = result["questions"]
             
             # Get suggested questions
             logger.info(f"[Request:{request_id}] Generating suggested questions")
-            questions_response = await acreate_single_response(openai_client, questions_prompt)
+            
             
             # Try to parse the questions as JSON, or extract them as best as possible
             try:
                 import json
-                suggested_questions = json.loads(questions_response)
+                questions_json = json.loads(questions_response)
+                suggested_questions = questions_json["questions"]
                 logger.info(f"[Request:{request_id}] Successfully parsed suggested questions as JSON")
             except:
                 # Extract questions with a fallback method
@@ -289,7 +282,7 @@ async def upload_file(
                     questions = ["What is the main topic of this document?", 
                                 "What are the key points discussed in the document?", 
                                 "How can I apply the information in this document?"]
-                suggested_questions = questions[:3]
+                suggested_questions = questions
             
             summary_time = time.time() - summary_start
             logger.info(f"[Request:{request_id}] Document summary generation completed in {summary_time:.4f} seconds")
@@ -301,7 +294,7 @@ async def upload_file(
                 "status": "success", 
                 "message": f"Processed {file.filename}", 
                 "session_id": session_id,
-                "document_description": document_description,
+                "document_description": document_summary,
                 "suggested_questions": suggested_questions,
                 "processing_stats": {
                     "total_time": total_time,
@@ -365,7 +358,7 @@ async def query(request: QueryRequest):
     # Run the query
     start_time = time.time()
     logger.info(f"[Request:{request_id}] Executing RAG pipeline")
-    result = await retrieval_pipeline.arun_pipeline(request.query, user_id, session_id)
+    result = await retrieval_pipeline.arun_pipeline(request.query)
     
     # Process the result and return the response
     response_text = ""
@@ -422,7 +415,7 @@ async def stream_query(request: QueryRequest):
     # Run the query
     start_time = time.time()
     logger.info(f"[Request:{request_id}] Executing RAG pipeline for streaming")
-    result = await retrieval_pipeline.arun_pipeline(request.query, user_id, session_id)
+    result = await retrieval_pipeline.arun_pipeline(request.query)
     
     # Extract context for logging
     context_list = result.get("context", [])
@@ -492,7 +485,7 @@ async def stream_query_get(
     # Run the query
     start_time = time.time()
     logger.info(f"[Request:{request_id}] Executing RAG pipeline for streaming (GET)")
-    result = await retrieval_pipeline.arun_pipeline(query, user_id, session_id)
+    result = await retrieval_pipeline.arun_pipeline(query)
     
     # Extract context for logging
     context_list = result.get("context", [])
@@ -921,6 +914,9 @@ class RetrievalAugmentedQAPipeline:
             logger.warning("LangSmith utils not available, tracing disabled")
             self.langsmith_tracer = None
 
+        # Initialize LangSmith to None to not use it
+        self.langsmith_tracer = None
+
     def update_templates(self, system_template: str, user_template: str):
         """Update prompt templates"""
         self.system_template = system_template
@@ -932,62 +928,36 @@ class RetrievalAugmentedQAPipeline:
             self.human_prompt_template
         ])
 
-    async def arun_pipeline(self, user_query: str, user_id: str = None, session_id: str = None):
+    async def arun_pipeline(self, user_query: str):
+        """Run the pipeline
+        Args:
+            user_query: The query to search the vector database for.
+            user_id: The user ID to log the run to.
+            session_id: The session ID to log the run to.
+        Returns:
+            The response from the pipeline.
+        """
+
         # Get context from vector database
         context_list = self.vector_db_retriever.search_by_text(user_query, k=4)
         
-        # Log context retrieval to LangSmith if available
-        retrieval_run_id = None
-        if self.langsmith_tracer and self.langsmith_tracer.tracing_enabled and self.langsmith_tracer.client:
-            # Add debug logging
-            logger.info(f"Attempting to log retrieval to LangSmith. Tracer enabled: {self.langsmith_tracer.tracing_enabled}")
-            try:
-                retrieval_run_id = self.langsmith_tracer.log_retrieval(
-                    query=user_query,
-                    retrieved_documents=context_list,
-                    user_id=user_id,
-                    session_id=session_id
-                )
-                logger.info(f"Successfully logged retrieval to LangSmith with run_id: {retrieval_run_id}")
-            except Exception as e:
-                logger.error(f"Failed to log retrieval to LangSmith: {str(e)}")
-
         # Format context for prompt
         context_prompt = ""
         for context in context_list:
             context_prompt += context[0] + "\n"
 
-        # Create messages using LangChain prompt templates
-        messages = self.chat_prompt_template.format_messages(
-            question=user_query, 
-            context=context_prompt
-        )
+        # get the rag pipeline chain
+        rag_chain = get_rag_pipeline_chain()
+              
 
         async def generate_response():
             response_chunks = []
             # Use our custom streaming function
-            async for chunk in astream_openai(self.llm, messages):
-                response_chunks.append(chunk)
-                yield chunk
-            
-            # Log generation to LangSmith if available
-            if self.langsmith_tracer and self.langsmith_tracer.tracing_enabled and self.langsmith_tracer.client:
-                try:
-                    full_response = "".join(response_chunks)
-                    self.langsmith_tracer.log_rag_generation(
-                        query=user_query,
-                        context=context_prompt,
-                        response=full_response,
-                        system_prompt=self.system_template,
-                        user_prompt=self.user_template,
-                        user_id=user_id,
-                        session_id=session_id,
-                        parent_run_id=retrieval_run_id
-                    )
-                    logger.info("Successfully logged generation to LangSmith")
-                except Exception as e:
-                    logger.error(f"Failed to log generation to LangSmith: {str(e)}")
-
+            async for chunk in rag_chain.astream({"question": user_query, "context": context_prompt}):
+                # Extract the content from the AIMessageChunk
+                chunk_text = chunk.content
+                response_chunks.append(chunk_text)
+                yield chunk_text
         return {"response": generate_response(), "context": context_list}
 
 if __name__ == "__main__":
